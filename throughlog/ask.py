@@ -1,15 +1,15 @@
-"""Ask your diary a question (`tl ask "…"`).
+"""Ask your journal a question (`tl ask "…"`).
 
-A read-only natural-language query surface over the already-synthesized diaries —
+A read-only natural-language query surface over the already-synthesized journal —
 *not* part of the capture→synthesize pipeline. The flow mirrors retrieval-augmented
 generation, but every piece that can be deterministic is:
 
-  1. DETERMINISTIC RETRIEVAL — split the per-project ``diary.md`` / ``archive.md``
+  1. DETERMINISTIC RETRIEVAL — split the per-project ``overview.md`` / ``archive.md``
      (+ ``daily.md`` / ``executive_summary.md``) into heading-delimited passages and
      rank them against the question by keyword overlap. Pure, offline, testable.
   2. ONE LLM CALL — stuff the top passages in as the *only* ground truth and ask the
      question. This is a third, optional, **read-only** LLM touchpoint that lives
-     outside the determinism-bounded pipeline; it only ever reads diary markdown that
+     outside the determinism-bounded pipeline; it only ever reads journal markdown that
      already passed the privacy gate, and ``client.chat`` re-runs the egress scrub on
      the outbound prompt, so nothing un-gated can leave the machine.
   3. GRACEFUL DEGRADE — no key, ``--no-llm``, or any ``LLMError`` falls back to
@@ -40,14 +40,14 @@ from throughlog.llm import prompts
 # --------------------------------------------------------------------------- #
 @dataclass
 class Passage:
-    """One retrievable chunk of diary text, with a human-readable source label."""
+    """One retrievable chunk of journal text, with a human-readable source label."""
     source: str
     text: str
     score: float = 0.0
 
 
 def _label_base(rel: Path) -> str:
-    """``project_checkout/diary.md`` -> ``checkout/diary``; ``daily.md`` -> ``daily``."""
+    """``project_checkout/overview.md`` -> ``checkout/overview``; ``daily.md`` -> ``daily``."""
     parts = list(rel.with_suffix("").parts)
     parts = [p[len("project_"):] if p.startswith("project_") else p for p in parts]
     return "/".join(parts)
@@ -82,12 +82,12 @@ def _matches_project(rel: Path, project: str) -> bool:
     return base == project.lower() or project.lower() in str(rel).lower()
 
 
-def load_corpus(diaries_dir: str | Path, *, project: str | None = None) -> list[Passage]:
-    """Read every ``*.md`` under ``diaries_dir`` into ranked-ready passages (pure I/O).
+def load_corpus(journal_dir: str | Path, *, project: str | None = None) -> list[Passage]:
+    """Read every ``*.md`` under ``journal_dir`` into ranked-ready passages (pure I/O).
 
     Optionally restrict to a single ``project`` id. Reads only already-synthesized,
     already-gated markdown — never raw events."""
-    root = Path(diaries_dir)
+    root = Path(journal_dir)
     if not root.exists():
         return []
     out: list[Passage] = []
@@ -167,11 +167,11 @@ class Answer:
     error: str = ""
 
 
-_NO_MATCH = "I couldn't find anything in your diary about that."
+_NO_MATCH = "I couldn't find anything in your journal about that."
 
 
 def _deterministic_answer(passages: list[Passage]) -> str:
-    lines = ["(No model — here are the most relevant diary sections.)", ""]
+    lines = ["(No model — here are the most relevant journal sections.)", ""]
     for p in passages:
         lines.append(f"### {p.source}")
         lines.append(p.text)

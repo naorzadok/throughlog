@@ -46,9 +46,9 @@ class SplitMarkdown(unittest.TestCase):
 class Ranking(unittest.TestCase):
     def setUp(self):
         self.passages = [
-            ask.Passage("checkout/diary › Narrative",
+            ask.Passage("checkout/overview › Narrative",
                         "Fixed the coupon rounding bug in the checkout cart and committed it."),
-            ask.Passage("infra/diary › Narrative",
+            ask.Passage("infra/overview › Narrative",
                         "Upgraded the database and rotated the deploy credentials."),
             ask.Passage("checkout/archive › Files",
                         "coupon.ts cart.ts"),
@@ -77,10 +77,10 @@ class Ranking(unittest.TestCase):
 class LoadCorpus(unittest.TestCase):
     def _write(self, root: Path):
         (root / "project_checkout").mkdir(parents=True)
-        (root / "project_checkout" / "diary.md").write_text(
+        (root / "project_checkout" / "overview.md").write_text(
             "# Checkout\n## Current State\nCoupon rounding fixed.", encoding="utf-8")
         (root / "project_infra").mkdir(parents=True)
-        (root / "project_infra" / "diary.md").write_text(
+        (root / "project_infra" / "overview.md").write_text(
             "# Infra\n## Current State\nDatabase upgraded.", encoding="utf-8")
         (root / "daily.md").write_text("## 2026-06-26\n**checkout** — shipped coupon fix",
                                        encoding="utf-8")
@@ -91,7 +91,7 @@ class LoadCorpus(unittest.TestCase):
             self._write(root)
             corpus = ask.load_corpus(root)
             labels = {p.source for p in corpus}
-            self.assertIn("checkout/diary › Current State", labels)
+            self.assertIn("checkout/overview › Current State", labels)
             self.assertTrue(any(s.startswith("daily") for s in labels))
 
     def test_project_filter(self):
@@ -112,7 +112,7 @@ class LoadCorpus(unittest.TestCase):
 class AnswerDriver(unittest.TestCase):
     def setUp(self):
         self.passages = [
-            ask.Passage("checkout/diary › Narrative",
+            ask.Passage("checkout/overview › Narrative",
                         "Fixed the coupon rounding bug and committed CHK-241."),
         ]
 
@@ -127,15 +127,15 @@ class AnswerDriver(unittest.TestCase):
         ans = ask.answer("coupon rounding", self.passages, None)
         self.assertFalse(ans.used_llm)
         self.assertIn("coupon rounding", ans.text.lower())
-        self.assertIn("checkout/diary › Narrative", ans.sources)
+        self.assertIn("checkout/overview › Narrative", ans.sources)
 
     def test_client_answer_passes_through_and_sees_question(self):
-        client = _FakeClient(reply="You fixed coupon rounding [checkout/diary › Narrative].")
+        client = _FakeClient(reply="You fixed coupon rounding [checkout/overview › Narrative].")
         ans = ask.answer("what coupon work did I do?", self.passages, client)
         self.assertTrue(ans.used_llm)
-        self.assertEqual(ans.text, "You fixed coupon rounding [checkout/diary › Narrative].")
+        self.assertEqual(ans.text, "You fixed coupon rounding [checkout/overview › Narrative].")
         self.assertIn("coupon", client.user.lower())
-        self.assertIn("checkout/diary › Narrative", client.user)
+        self.assertIn("checkout/overview › Narrative", client.user)
 
     def test_llm_error_degrades_never_raises(self):
         client = _FakeClient(error=LLMError("rate limited"))
@@ -153,9 +153,9 @@ class AnswerDriver(unittest.TestCase):
 class AskPrompt(unittest.TestCase):
     def test_prompt_carries_question_and_sources(self):
         system, user = prompts.build_ask_prompt(
-            "what did I ship?", [("checkout/diary › Narrative", "shipped coupon fix")])
+            "what did I ship?", [("checkout/overview › Narrative", "shipped coupon fix")])
         self.assertIn("what did I ship?", user)
-        self.assertIn("checkout/diary › Narrative", user)
+        self.assertIn("checkout/overview › Narrative", user)
         self.assertIn("shipped coupon fix", user)
         self.assertIn("only", system.lower())   # grounded-only instruction
 

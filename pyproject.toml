@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "throughlog"
 version = "2.0.0"
-description = "A private, local work journal that records your day — and what your AI agents did — as per-project diaries and an executive summary."
+description = "A private, local work journal that records your day — and what your AI agents did — as per-project journals and an executive summary."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Naor Zadok" }]
-keywords = ["work-journal", "developer-diary", "ai-agents", "privacy", "local-first", "llm"]
+keywords = ["work-journal", "developer-journal", "ai-agents", "privacy", "local-first", "llm"]
 
 # The core pipeline (schema, privacy gate, timeline, categorize, synthesize, the
 # LLM client, and the simulator) is pure standard library — no runtime deps.

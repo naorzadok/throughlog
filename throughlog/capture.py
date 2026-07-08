@@ -256,7 +256,7 @@ class Runtime:
     sup: Supervisor
     bus: Any
     roots: list[Path]
-    diaries_dir: Path
+    journal_dir: Path
     data_dir: Path
 
 
@@ -273,7 +273,7 @@ def build_runtime(*, enable_clipboard: bool = True, enable_agents: bool = True,
     roots = cfgmod.allowlist_roots(cfg, projects)
     allow = Allowlist(roots)
     ddir = cfgmod.data_dir(cfg)
-    diaries_dir = cfgmod.BASE_DIR / cfg.get("paths", {}).get("diaries_dir", "diaries")
+    journal_dir = cfgmod.BASE_DIR / cfg.get("paths", {}).get("journal_dir", "journal")
     diff_policy = cfgmod.diff_policy_from(cfg, projects)
     bus = EventBus(ddir / "events", allow, diff_policy=diff_policy, diffs_dir=ddir / "diffs")
 
@@ -284,11 +284,11 @@ def build_runtime(*, enable_clipboard: bool = True, enable_agents: bool = True,
         cfg, [str(r) for r in roots],
         enable_clipboard=enable_clipboard, enable_agents=enable_agents,
         agent_drop_dir=agent_drop, agent_archive_dir=agent_archive,
-        exclude_dirs=[ddir, diaries_dir], diff_policy=diff_policy)
+        exclude_dirs=[ddir, journal_dir], diff_policy=diff_policy)
 
     sup = Supervisor(bus, sources, status_path=ddir / "daemon_status.json",
                      heartbeat_sec=heartbeat_sec)
-    return Runtime(sup, bus, roots, diaries_dir, ddir)
+    return Runtime(sup, bus, roots, journal_dir, ddir)
 
 
 # --------------------------------------------------------------------------- #

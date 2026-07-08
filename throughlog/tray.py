@@ -9,7 +9,7 @@ tray icon so the day-long recording is visible and controllable without a consol
     also bound to the global ``Ctrl+Shift+P`` hotkey;
   * *Whisper note…* pops the intent dialog — also bound to ``Ctrl+Shift+M``;
   * *Synthesize now* runs the analysis pipeline over what's captured so far;
-  * *Open diaries folder* / *Quit* do the obvious thing — Quit shuts the
+  * *Open journal folder* / *Quit* do the obvious thing — Quit shuts the
     supervisor down cleanly (each source flushes) and writes a final status.
 
 The two global hotkeys are registered here (best-effort, via the ``keyboard`` lib
@@ -135,8 +135,8 @@ def run_tray(*, enable_clipboard: bool = True, enable_agents: bool = True,
 
     def on_open(_icon: Any, _item: Any) -> None:
         try:
-            rt.diaries_dir.mkdir(parents=True, exist_ok=True)
-            os.startfile(str(rt.diaries_dir))   # noqa: this is Windows-only by design
+            rt.journal_dir.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(rt.journal_dir))   # noqa: this is Windows-only by design
         except Exception:
             pass
 
@@ -153,7 +153,7 @@ def run_tray(*, enable_clipboard: bool = True, enable_agents: bool = True,
             on_pause),
         pystray.MenuItem(menu_label("Whisper note…", whisper_hk), on_whisper),
         pystray.MenuItem("Synthesize now", on_synthesize),
-        pystray.MenuItem("Open diaries folder", on_open),
+        pystray.MenuItem("Open journal folder", on_open),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Quit", on_quit),
     )

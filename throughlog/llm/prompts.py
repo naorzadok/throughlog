@@ -62,19 +62,19 @@ def build_categorize_prompt(event_summaries: list[str],
 # --------------------------------------------------------------------------- #
 DAILY_SEP = "---DAILY SUMMARY---"
 
-DIARY_SYSTEM = (
-    "You maintain a living technical project diary for someone who was NOT present. "
+OVERVIEW_SYSTEM = (
+    "You maintain a living technical project overview for someone who was NOT present. "
     "Write accurate, legible prose grounded ONLY in the supplied events — never invent "
     "work, files, or decisions that the events do not support. Preserve important "
-    "historical context from the current diary and connect new work to existing threads. "
-    "Output the COMPLETE updated diary in the requested section structure, then the "
+    "historical context from the current overview and connect new work to existing threads. "
+    "Output the COMPLETE updated overview in the requested section structure, then the "
     "separator line, then a short plain-text daily summary — and nothing after it."
 )
 
-# Phase 2, tier 2 — the append-only, day-by-day DETAILED journal. This is the
-# permanent fine-grained record (the layer the living diary deliberately rolls up),
-# so its instructions are the inverse: keep every concrete specific, never round away.
-JOURNAL_SYSTEM = (
+# Phase 2, tier 2 — the append-only, day-by-day DETAILED entries. These are the
+# permanent fine-grained record (the layer the living overview deliberately rolls up),
+# so their instructions are the inverse: keep every concrete specific, never round away.
+ENTRY_SYSTEM = (
     "You write one day's entry in an append-only, detailed engineering journal for "
     "someone who was NOT present. This entry is the PERMANENT fine-grained record, so "
     "preserve concrete specifics exactly: parameters changed and the values tried, "
@@ -95,29 +95,29 @@ EXEC_SYSTEM = (
 )
 
 
-def build_diary_prompt(project: dict[str, Any], current_diary: str,
+def build_overview_prompt(project: dict[str, Any], current_overview: str,
                        event_summaries: str, date_range: str, today: str,
                        *, high_level: bool = False) -> tuple[str, str]:
     """Living-doc rewrite prompt. When ``high_level`` is set the activity block is the
-    already-summarized DETAILED JOURNAL entries (tier 2), and the model is told to roll
-    them up — keep specifics OUT of the living doc, which holds them in the journal."""
+    already-summarized DETAILED entries (tier 2), and the model is told to roll
+    them up — keep specifics OUT of the living doc, which holds them in the entries."""
     name = project.get("name", project["id"])
     desc = project.get("description", "")
-    activity_label = ("NEW ACTIVITY — detailed journal entries to summarize" if high_level
+    activity_label = ("NEW ACTIVITY — detailed entries to summarize" if high_level
                       else "NEW ACTIVITY")
     rollup = (
         "\nSTAY HIGH-LEVEL: do NOT enumerate specific parameter values, individual numbers, "
         "or config keys — refer to them in aggregate (e.g. \"several damping values were "
-        "tried\"). The detailed journal already holds the specifics; this living document is "
+        "tried\"). The detailed entries already hold the specifics; this living document is "
         "the overview someone reads to grasp the current state fast.\n"
     ) if high_level else ""
     user = (
-        f'CURRENT DIARY for "{name}":\n{current_diary}\n\n'
+        f'CURRENT OVERVIEW for "{name}":\n{current_overview}\n\n'
         f"{activity_label} ({date_range}):\n{event_summaries}\n\n"
         f"Project description: {desc}\n"
         f"{rollup}\n"
         "=== TASK ===\n"
-        f'Rewrite the diary for "{name}" to absorb the new activity. Output exactly '
+        f'Rewrite the overview for "{name}" to absorb the new activity. Output exactly '
         "these sections:\n"
         f"# {name}\n"
         f"**Status:** active | **Last Updated:** {today}\n\n"
@@ -126,17 +126,17 @@ def build_diary_prompt(project: dict[str, Any], current_diary: str,
         "## Chronological Narrative\n[connected prose — NO bullets; tie new work to past "
         "decisions; no artificial length limit]\n\n"
         "## Key Artifacts\n[bullets: files changed, tools/methods used, resources referenced]\n\n"
-        f"After the complete diary, output this line alone:\n{DAILY_SEP}\n"
+        f"After the complete overview, output this line alone:\n{DAILY_SEP}\n"
         f"Then 2-3 plain-text sentences (no markdown) summarizing ONLY {date_range}: what was "
         "worked on, what was accomplished, and any key decisions or findings."
     )
-    return DIARY_SYSTEM, user
+    return OVERVIEW_SYSTEM, user
 
 
-def build_journal_prompt(project: dict[str, Any], event_summaries: str, date_label: str,
+def build_entry_prompt(project: dict[str, Any], event_summaries: str, date_label: str,
                          extract_hints: list[str] | None = None) -> tuple[str, str]:
-    """Return (system, user) for one day's DETAILED journal entry. ``extract_hints`` are
-    per-project things to be sure to capture (from ``signals.journal_extract``, else the
+    """Return (system, user) for one day's DETAILED entry. ``extract_hints`` are
+    per-project things to be sure to capture (from ``signals.entry_extract``, else the
     project description + keywords)."""
     name = project.get("name", project["id"])
     hints = ""
@@ -149,17 +149,17 @@ def build_journal_prompt(project: dict[str, Any], event_summaries: str, date_lab
         f"{hints}"
         f"ACTIVITY ON {date_label}:\n{event_summaries}\n\n"
         "=== TASK ===\n"
-        f"Write the detailed journal entry for {date_label}. Capture the concrete "
+        f"Write the detailed entry for {date_label}. Capture the concrete "
         "specifics — exact parameters, the values tried, numeric results, decisions and "
         "why. Be thorough but legible; this is the record someone will later query for "
         "details. Plain markdown prose (bullets are fine for value/result lists), no "
         "heading line — the date heading is added for you."
     )
-    return JOURNAL_SYSTEM, user
+    return ENTRY_SYSTEM, user
 
 
 # Phase 2, period rollup — the durable weekly/monthly retrospective. Reads the
-# already-written (gated) per-project journal/archive sections for the period and
+# already-written (gated) per-project entries/archive sections for the period and
 # distills ONE cross-project summary. Same posture as `tl ask`: read-only over output
 # that has already passed the privacy gate, re-scrubbed again by client.chat.
 PERIOD_SUMMARY_SYSTEM = (
@@ -176,11 +176,11 @@ PERIOD_SUMMARY_SYSTEM = (
 def build_period_summary_prompt(period_label: str,
                                 project_sections: dict[str, str]) -> tuple[str, str]:
     """Return (system, user) for one period (week/month) cross-project summary. ``project_sections``
-    maps project id -> that project's already-gated journal/archive text for the period."""
+    maps project id -> that project's already-gated entries/archive text for the period."""
     blocks = "\n\n".join(f"### {pid}\n{text}" for pid, text in project_sections.items())
     user = (
         f"PERIOD: {period_label}\n\n"
-        f"PER-PROJECT ACTIVITY THIS PERIOD (already recorded journal/archive entries):\n{blocks}\n\n"
+        f"PER-PROJECT ACTIVITY THIS PERIOD (already recorded entries/archive sections):\n{blocks}\n\n"
         "=== TASK ===\n"
         f"Write the retrospective for {period_label}. Open with one line on the overall shape of "
         "the period, then a short section per project (what advanced, key outcomes/decisions), then "
@@ -199,7 +199,7 @@ def build_chunk_summary_prompt(project: dict[str, Any], event_summaries: str,
         "Write a concise prose summary (3-6 sentences): what was worked on, what was "
         "produced or decided, and notable patterns. Plain text, no markdown headers."
     )
-    return DIARY_SYSTEM, user
+    return OVERVIEW_SYSTEM, user
 
 
 def build_exec_summary_prompt(project_paragraphs: dict[str, str], day: str) -> tuple[str, str]:
@@ -215,11 +215,11 @@ def build_exec_summary_prompt(project_paragraphs: dict[str, str], day: str) -> t
 
 
 # --------------------------------------------------------------------------- #
-# Read-only diary Q&A (`tl ask`) — grounded strictly in retrieved passages
+# Read-only journal Q&A (`tl ask`) — grounded strictly in retrieved passages
 # --------------------------------------------------------------------------- #
 ASK_SYSTEM = (
     "You answer questions about the user's OWN recorded work, grounded ONLY in the "
-    "diary passages supplied below. Never invent work, dates, files, or decisions the "
+    "journal passages supplied below. Never invent work, dates, files, or decisions the "
     "passages do not support. If the passages do not contain the answer, say so plainly "
     "rather than guessing. Cite the source label(s) you used in square brackets. Be "
     "concise and concrete."
@@ -228,15 +228,15 @@ ASK_SYSTEM = (
 
 def build_ask_prompt(question: str,
                      passages: list[tuple[str, str]]) -> tuple[str, str]:
-    """Return (system, user) for a single diary-Q&A call. ``passages`` is an ordered
+    """Return (system, user) for a single journal-Q&A call. ``passages`` is an ordered
     list of ``(source_label, text)`` — the *only* ground truth the model may use."""
     blocks = [f"[{i}] source: {src}\n{text}" for i, (src, text) in enumerate(passages, 1)]
     user = (
         f"QUESTION:\n{question}\n\n"
-        "DIARY PASSAGES (the only ground truth — cite by source label):\n"
+        "JOURNAL PASSAGES (the only ground truth — cite by source label):\n"
         f"{chr(10).join(blocks) if blocks else '(none)'}\n\n"
         "Answer the question using only the passages above. If they do not contain the "
-        "answer, say what's missing. Cite sources in brackets, e.g. [checkout/diary › …]."
+        "answer, say what's missing. Cite sources in brackets, e.g. [checkout/overview › …]."
     )
     return ASK_SYSTEM, user
 
@@ -265,7 +265,7 @@ _INIT_CONTRACT = (
     '  "description": "<one or two sentences on what the project is>",\n'
     '  "keywords": ["<distinctive term>", ...],\n'
     '  "window_patterns": ["<regex matching the project in a window title>", ...],\n'
-    '  "journal_extract": ["<kind of specific to always capture in the journal>", ...],\n'
+    '  "entry_extract": ["<kind of specific to always capture in each journal entry>", ...],\n'
     '  "domains": ["<host the project owns, e.g. docs/issue tracker>", ...],\n'
     '  "jira_prefixes": ["<ABC>", ...]\n'
     "}\n"

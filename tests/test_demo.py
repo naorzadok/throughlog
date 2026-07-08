@@ -61,20 +61,20 @@ class DemoPipeline(unittest.TestCase):
         events = [NormalizedEvent.from_dict(d) for d in reconcile(raw)]
         categorize_events(events, demo.DEMO_PROJECTS, client=None)
         return events, syn.run(events, demo.DEMO_PROJECTS,
-                               diaries_dir=out / "diaries", client=None,
+                               journal_dir=out / "journal", client=None,
                                today=demo.DEMO_TODAY)
 
-    def test_synthesizes_populated_diaries_offline(self):
+    def test_synthesizes_populated_journal_offline(self):
         with tempfile.TemporaryDirectory() as d:
             out = Path(d)
             events, res = self._run(out)
             ids = {pd.project_id for pd in res.projects}
             self.assertEqual(ids, {"acme-checkout", "pricing-model"})
             for pd in res.projects:
-                archive = out / "diaries" / f"project_{pd.project_id}" / "archive.md"
+                archive = out / "journal" / f"project_{pd.project_id}" / "archive.md"
                 self.assertTrue(archive.exists())
                 self.assertIn("## 2026-06-24", archive.read_text(encoding="utf-8"))
-            acme = (out / "diaries" / "project_acme-checkout" /
+            acme = (out / "journal" / "project_acme-checkout" /
                     "archive.md").read_text(encoding="utf-8")
             self.assertIn("### Agent activity", acme)        # the wedge shows
             self.assertIn("claude-code", acme)

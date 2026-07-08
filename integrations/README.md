@@ -1,9 +1,9 @@
-# ThroughLog agent integrations — the diary + audit trail for your AI agents
+# ThroughLog agent integrations — the journal + audit trail for your AI agents
 
 Any agent (local or in the cloud) can write itself into your work journal with a
 single HTTP POST. This is the wedge: **add one hook and your AI tools record what
 they did**, trust-classified and attributed to the right project, in the same
-private diary as your own work.
+private journal as your own work.
 
 Everything here is a thin wrapper over the one documented contract below — the
 `POST /report` endpoint served by `tl capture` (`sources/agent_ingest.serve_http`,
@@ -23,7 +23,7 @@ POST a JSON object (schema v2). Minimum viable report:
 }
 ```
 
-- **`payload.summary`** is what lands in the diary.
+- **`payload.summary`** is what lands in the journal.
 - **`payload.repo`** (a repo path or git remote like `github.com/me/app`) and
   **`payload.files`** drive project attribution — the same deterministic signal
   stack as every other source. `payload.project_hint` adds a keyword signal.
@@ -76,7 +76,7 @@ Responses: `202` accepted, `422` rejected (malformed), `400` non-JSON.
   ```
 - **CI (GitHub Actions etc.)** — call the Python or JS client at the end of a job;
   point `SAL_ENDPOINT` at your relay and pass `SAL_TOKEN`. A bot/agent-authored run
-  becomes a first-class `AGENT_REPORT` thread in the diary.
+  becomes a first-class `AGENT_REPORT` thread in the journal.
 
 ## Verify it end-to-end
 
@@ -87,7 +87,7 @@ python -m throughlog.cli capture
 # 2) from anywhere, post a report
 python -m throughlog.agent_sdk --summary "smoke from the SDK" --repo "$(pwd)"
 
-# 3) synthesize + view — the agent report appears in the diary/timeline
+# 3) synthesize + view — the agent report appears in the journal/timeline
 python -m throughlog.cli synthesize
 python -m throughlog.cli serve
 ```

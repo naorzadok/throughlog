@@ -14,7 +14,7 @@ events are hand-built to exercise the full surface:
   * focus sessions, file changes, human commits, idle, opaque-app deep work,
     a long-running compute job, and narration, and crucially
   * an **AI-agent thread** (`AGENT_REPORT` + a bot-authored commit) — the wedge:
-    "here is what my agent did, in my diary, attributed to the right project."
+    "here is what my agent did, in my journal, attributed to the right project."
 
 Every event is pre-stamped with a `Privacy` audit record (exactly the shape the
 gate produces) so the demo store is indistinguishable from a real gated store:
@@ -41,7 +41,7 @@ from throughlog.schema import (
 
 # The demo "day". Fixed so the output is byte-stable across runs and machines.
 DEMO_DAY = "20260624"            # data/demo/<DEMO_DAY>.jsonl
-DEMO_TODAY = "2026-06-24"        # diary date label
+DEMO_TODAY = "2026-06-24"        # journal date label
 
 GATE_VERSION = "2"
 
@@ -233,17 +233,17 @@ def build_demo_events() -> list[NormalizedEvent]:
 # --------------------------------------------------------------------------- #
 # Illustrative LLM tiers (hand-authored fixtures)
 #
-# The demo runs keyless, so the two LLM-produced tiers — the living `diary.md` and the
-# detailed `journal/<YYYY-MM>.md` — would otherwise come out empty (a stub diary, no
-# journal at all) and the tour could not show the product's headline feature. These
+# The demo runs keyless, so the two LLM-produced tiers — the living `overview.md` and the
+# detailed `entries/<YYYY-MM>.md` — would otherwise come out empty (a stub overview, no
+# entries at all) and the tour could not show the product's headline feature. These
 # fixtures are *synthetic and illustrative*: hand-written to look like what the model
 # emits from the demo events above, so the guided tour shows all three tiers AND the
-# central contrast — the journal preserves the specifics (CHK-241, PR #482, AUC
-# 0.88 → 0.91, the exact features) while the living diary deliberately rolls them up
-# ("a few points", "the specifics are in the detailed journal"). Nothing here is
+# central contrast — the entries preserve the specifics (CHK-241, PR #482, AUC
+# 0.88 → 0.91, the exact features) while the living overview deliberately rolls them up
+# ("a few points", "the specifics are in the detailed entries"). Nothing here is
 # generated; it is fixture data on the same footing as the demo events.
 # --------------------------------------------------------------------------- #
-DEMO_DIARIES: dict[str, str] = {
+DEMO_OVERVIEWS: dict[str, str] = {
     "acme-checkout": f"""# Acme Checkout
 **Status:** active | **Last Updated:** {DEMO_TODAY}
 
@@ -260,7 +260,7 @@ review. A redesign of the checkout flow is in early design exploration.
 ## Chronological Narrative
 The day centered on coupon edge cases and a parallel, agent-driven currency change.
 Several stacked/expired-coupon cases were worked through; the exact codes, files, and
-guard ordering live in the detailed journal rather than here.
+guard ordering live in the detailed entries rather than here.
 
 ## Key Artifacts
 - CHK-241 — coupon stacking fix
@@ -281,7 +281,7 @@ counted as real.
 ## Chronological Narrative
 The period's work was seasonality feature engineering plus an evaluation pass. A few
 feature variants were tried with measurable but not-yet-confirmed gains; the exact
-features and before/after metrics are recorded in the detailed journal.
+features and before/after metrics are recorded in the detailed entries.
 
 ## Key Artifacts
 - PRI-77 — seasonality features
@@ -289,10 +289,10 @@ features and before/after metrics are recorded in the detailed journal.
 """,
 }
 
-# Per project, per month (the journal/<YYYY-MM>.md partition). Each value is one or more
-# dated sections framed exactly like a real journal entry (`---\n## <date>\n…\n---\n`), so
-# it renders through the same `journal_html` path and would merge idempotently by date.
-DEMO_JOURNALS: dict[str, dict[str, str]] = {
+# Per project, per month (the entries/<YYYY-MM>.md partition). Each value is one or more
+# dated sections framed exactly like a real entry (`---\n## <date>\n…\n---\n`), so
+# it renders through the same `entries_html` path and would merge idempotently by date.
+DEMO_ENTRIES: dict[str, dict[str, str]] = {
     "acme-checkout": {
         "2026-06": f"""---
 ## {DEMO_TODAY}
@@ -360,16 +360,16 @@ def write_demo_thinlog(path: str | Path) -> Path:
     return p
 
 
-def seed_demo_diaries(diaries_dir: str | Path) -> None:
-    """Write the illustrative living-diary + detailed-journal fixtures over the keyless
+def seed_demo_journal(journal_dir: str | Path) -> None:
+    """Write the illustrative living-overview + detailed-entries fixtures over the keyless
     synthesis output, so the demo dashboard shows all three tiers (the keyless run leaves
-    `diary.md` a stub and produces no journal). Pure fixture write — no LLM, no events."""
-    base = Path(diaries_dir)
-    for pid, diary in DEMO_DIARIES.items():
+    `overview.md` a stub and produces no entries). Pure fixture write — no LLM, no events."""
+    base = Path(journal_dir)
+    for pid, overview in DEMO_OVERVIEWS.items():
         pdir = base / f"project_{pid}"
         pdir.mkdir(parents=True, exist_ok=True)
-        (pdir / "diary.md").write_text(diary, encoding="utf-8")
-        for month, section in DEMO_JOURNALS.get(pid, {}).items():
-            jdir = pdir / "journal"
-            jdir.mkdir(parents=True, exist_ok=True)
-            (jdir / f"{month}.md").write_text(section, encoding="utf-8")
+        (pdir / "overview.md").write_text(overview, encoding="utf-8")
+        for month, section in DEMO_ENTRIES.get(pid, {}).items():
+            edir = pdir / "entries"
+            edir.mkdir(parents=True, exist_ok=True)
+            (edir / f"{month}.md").write_text(section, encoding="utf-8")

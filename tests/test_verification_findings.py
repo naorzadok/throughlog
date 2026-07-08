@@ -307,11 +307,11 @@ class RiskRegisterHardening(unittest.TestCase):
             return e
 
         d = tempfile.mkdtemp()
-        run([attributed()], [proj], diaries_dir=d, client=None, today="2026-06-21")
+        run([attributed()], [proj], journal_dir=d, client=None, today="2026-06-21")
         archive_path = os.path.join(d, "project_p", "archive.md")
         with open(archive_path, encoding="utf-8") as f:
             after_first = f.read()
-        run([attributed()], [proj], diaries_dir=d, client=None, today="2026-06-21")
+        run([attributed()], [proj], journal_dir=d, client=None, today="2026-06-21")
         with open(archive_path, encoding="utf-8") as f:
             after_second = f.read()
         self.assertEqual(after_first, after_second)             # idempotent

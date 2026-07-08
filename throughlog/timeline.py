@@ -1,7 +1,7 @@
 """Timeline reconciliation — deterministic ordering of a multi-source thin log.
 
 Events are persisted in *arrival* order (the bus appends as it gets them), but a
-diary needs them in *real* order. Reconciliation reads the thin JSONL log and
+journal needs them in *real* order. Reconciliation reads the thin JSONL log and
 produces a single ordered, de-duplicated timeline:
 
   * order by effective wall time = ts_wall corrected by clock_offset_sec, so a

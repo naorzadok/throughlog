@@ -1,6 +1,6 @@
 {
   "name": "a7_github_bot_pr",
-  "description": "A7 (M15) — account pull source. Captured GitHub API payloads (a bot-authored PR + a human commit) replay through the REAL transformers and bus. A cloud coding agent that opened a PR lands as an AGENT_REPORT with source.kind=agent and identity agent:<login> ('what my agents did in the cloud'); a teammate's commit lands as a remote AGENT_REPORT (kind=remote, identity github:<login>). Both carry the repo remote so they attribute to the project, and the prose appears in the diary.",
+  "description": "A7 (M15) — account pull source. Captured GitHub API payloads (a bot-authored PR + a human commit) replay through the REAL transformers and bus. A cloud coding agent that opened a PR lands as an AGENT_REPORT with source.kind=agent and identity agent:<login> ('what my agents did in the cloud'); a teammate's commit lands as a remote AGENT_REPORT (kind=remote, identity github:<login>). Both carry the repo remote so they attribute to the project, and the prose appears in the journal.",
   "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
   "github": {
     "repo_remote": "github.com/acme/acme-api",

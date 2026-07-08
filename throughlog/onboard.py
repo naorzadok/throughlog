@@ -1,7 +1,7 @@
 """ThroughLog onboarding — `tl init` zero-friction project discovery.
 
 Hand-authoring ``projects.json`` (paths, keywords, apps, domains, regexes) is the
-single biggest wall between cloning this repo and seeing a first diary. This module
+single biggest wall between cloning this repo and seeing a first journal. This module
 removes it: scan a root directory for git repositories and generate a ready-to-edit
 ``projects.json`` — one project per repo, with ``signals.paths`` + ``git_remotes``
 read straight from the repo, and ``keywords`` / ``window_patterns`` inferred from the
@@ -350,7 +350,7 @@ def build_repo_digest(folder: str | Path, *, max_chars: int = 4000) -> str:
 
 # Descriptive signal fields the LLM may PROPOSE. ``paths``/``git_remotes`` are deliberately
 # absent — they are owned by the deterministic scanner (paths drive the privacy allowlist).
-_ENRICH_LIST_FIELDS = ("keywords", "window_patterns", "journal_extract",
+_ENRICH_LIST_FIELDS = ("keywords", "window_patterns", "entry_extract",
                        "domains", "jira_prefixes")
 
 

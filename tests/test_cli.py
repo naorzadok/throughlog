@@ -63,7 +63,7 @@ class RunPipelineOffline(unittest.TestCase):
                         payload={"path": "~/Desktop/projects/throughlog/throughlog/x.py"})
         idle = make_event(IDLE_START, kind="os", adapter="os_focus", ts_wall=TS,
                           payload={"idle_after_sec": 700})
-        res = cli.run_pipeline([ev, idle], PROJECTS, diaries_dir=self.out,
+        res = cli.run_pipeline([ev, idle], PROJECTS, journal_dir=self.out,
                                client=None, today="2026-05-06")
         self.assertEqual(ev.attribution.project_id, "logger")
         self.assertEqual(len(res.projects), 1)
@@ -73,7 +73,7 @@ class RunPipelineOffline(unittest.TestCase):
     def test_attribution_counts(self):
         ev = make_event(FILE_CHANGE, kind="fs", adapter="fs_git", ts_wall=TS,
                         payload={"path": "~/Desktop/projects/throughlog/throughlog/x.py"})
-        cli.run_pipeline([ev], PROJECTS, diaries_dir=self.out, client=None, today="2026-05-06")
+        cli.run_pipeline([ev], PROJECTS, journal_dir=self.out, client=None, today="2026-05-06")
         counts = cli._attribution_counts([ev])
         self.assertEqual(counts.get("signal_path"), 1)
 

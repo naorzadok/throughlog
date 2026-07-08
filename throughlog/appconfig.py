@@ -38,8 +38,8 @@ ALLOWED_LLM = frozenset({"api_key", "model", "base_url", "model_fallback",
 ALLOWED_PRIVACY = frozenset({"capture_diffs", "clipboard_preview", "diff_max_lines",
                              "diff_max_bytes", "clipboard_preview_chars",
                              "allowlist_extra", "ignore_globs"})
-ALLOWED_SYNTHESIS = frozenset({"daily_journal", "journal_period", "summary_cadence",
-                               "journal_max_tokens"})
+ALLOWED_SYNTHESIS = frozenset({"write_entries", "entry_period", "summary_cadence",
+                               "entry_max_tokens"})
 ALLOWED_INIT = frozenset({"llm_enrich"})
 
 
@@ -110,7 +110,7 @@ def update_privacy(patch: dict[str, Any], *,
 def update_synthesis(patch: dict[str, Any], *,
                      config_path: str | Path | None = None) -> dict[str, Any]:
     """Write the journal/summary knobs (``config.synthesis.*``) from the settings UI —
-    ``daily_journal``, ``journal_period``, ``summary_cadence``, ``journal_max_tokens``.
+    ``write_entries``, ``entry_period``, ``summary_cadence``, ``entry_max_tokens``.
     Enum validation is the caller's job; this only enforces the key allow-set."""
     return update_config_section("synthesis", patch, allowed=ALLOWED_SYNTHESIS,
                                  config_path=config_path)

@@ -30,7 +30,7 @@
         "apps": ["Code.exe", "python.exe"],
         "domains": ["github.com/acme/pricing-model"],
         "window_patterns": [".*[Pp]ricing.*"],
-        "journal_extract": ["hyperparameters and the values tried", "metric/benchmark numbers", "dataset or feature changes"]
+        "entry_extract": ["hyperparameters and the values tried", "metric/benchmark numbers", "dataset or feature changes"]
       }
     }
   ]

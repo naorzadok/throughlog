@@ -94,7 +94,7 @@ class Formatters(unittest.TestCase):
     def test_empty_inputs_message(self):
         with tempfile.TemporaryDirectory() as d:
             out = report.standup_markdown(report.load_inputs(d))
-            self.assertIn("No diary entries", out)
+            self.assertIn("No journal entries", out)
 
 
 # --------------------------------------------------------------------------- #
@@ -150,7 +150,7 @@ class Transports(unittest.TestCase):
 
 
 class PeriodSummaryPreference(unittest.TestCase):
-    def _diaries(self, *, with_summary=True):
+    def _journal_inputs(self, *, with_summary=True):
         d = Path(tempfile.mkdtemp(prefix="sal_report_test_"))
         (d / "daily.md").write_text(_DAILY, encoding="utf-8")
         (d / "executive_summary.md").write_text(_EXEC, encoding="utf-8")
@@ -166,7 +166,7 @@ class PeriodSummaryPreference(unittest.TestCase):
         return d
 
     def test_weekly_prefers_synthesized_summary(self):
-        d = self._diaries()
+        d = self._journal_inputs()
         inp = report.load_inputs(d, weekly=True)
         md = report.standup_markdown(inp, weekly=True)
         self.assertIn("Work summary — 2026-W26", md)
@@ -174,14 +174,14 @@ class PeriodSummaryPreference(unittest.TestCase):
         self.assertNotIn("Shipped the dashboard", md)        # not the daily reglue
 
     def test_monthly_picks_the_month_file(self):
-        d = self._diaries()
+        d = self._journal_inputs()
         inp = report.load_inputs(d, monthly=True)
         self.assertEqual(inp.period_label, "2026-06")
         md = report.standup_markdown(inp, weekly=True)
         self.assertIn("Work summary — 2026-06", md)
 
     def test_falls_back_to_daily_reglue_without_summary(self):
-        d = self._diaries(with_summary=False)
+        d = self._journal_inputs(with_summary=False)
         inp = report.load_inputs(d, weekly=True)
         self.assertEqual(inp.period_summary, "")
         md = report.standup_markdown(inp, weekly=True)

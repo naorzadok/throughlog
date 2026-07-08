@@ -22,9 +22,9 @@
     "clipboard_preview_chars": 256
   },
   "synthesis": {
-    "daily_journal": true,
-    "journal_max_tokens": 1500,
-    "journal_period": "month",
+    "write_entries": true,
+    "entry_max_tokens": 1500,
+    "entry_period": "month",
     "summary_cadence": "weekly"
   },
   "init": {
@@ -32,7 +32,7 @@
   },
   "paths": {
     "data_dir": "data",
-    "diaries_dir": "diaries"
+    "journal_dir": "journal"
   },
   "schedule": {
     "synthesize_at": ""

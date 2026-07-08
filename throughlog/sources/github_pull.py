@@ -17,7 +17,7 @@ Two deliberate modeling choices:
     Modeling remote work as a remote report is both schema-correct and avoids that.
   * **Human vs. agent is preserved**, not erased: a bot/app author yields
     ``source.kind="agent"`` + ``identity="agent:<login>"`` (so "what my agents did
-    in the cloud" is a first-class diary thread); a human yields
+    in the cloud" is a first-class journal thread); a human yields
     ``source.kind="remote"`` + ``identity="github:<login>"``. ``payload.actor``
     records the split too.
 

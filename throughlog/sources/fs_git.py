@@ -295,7 +295,7 @@ def watch_live(emitter, roots, *, stop=None, human_active_fn=lambda: False,
     ``human_active_fn`` should report whether a human input happened recently
     (wired to the focus adapter's input signal). ``exclude`` is a list of
     directories whose subtrees are ignored — used to skip the tool's own
-    ``data/`` and ``diaries/`` so its status/log writes don't self-pollute
+    ``data/`` and ``journal/`` so its status/log writes don't self-pollute
     capture. Runs until ``stop`` (a threading.Event) is set or KeyboardInterrupt,
     then stops the observer. Roots that do not exist are skipped so a partial
     allowlist still watches."""

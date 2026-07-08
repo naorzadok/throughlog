@@ -4,7 +4,7 @@ A tiny, dependency-free client that builds a schema-v2 ``AGENT_REPORT`` and send
 it to the tl report endpoint — the local capture HTTP endpoint
 (``http://127.0.0.1:8787/report``, served by ``sources/agent_ingest.serve_http``)
 or a remote relay (M16). One POST and the agent's work shows up, trust-classified
-and attributed, in the diary and dashboard. This is the documented contract behind
+and attributed, in the journal and dashboard. This is the documented contract behind
 every drop-in hook (Claude Code, Cursor, CI, n8n).
 
     from throughlog.agent_sdk import AgentReporter
@@ -54,7 +54,7 @@ def build_report(*, summary: str, identity: str, tool: str = "",
                  extra: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build the report dict an agent submits. ``repo``/``files`` drive project
     attribution (path + git-remote signals); ``summary``/``project`` drive keyword
-    signals; the prose is what lands in the diary. Always schema-valid."""
+    signals; the prose is what lands in the journal. Always schema-valid."""
     payload: dict[str, Any] = {"summary": str(summary), "tool": tool}
     if files:
         payload["files"] = [str(f) for f in files]
@@ -182,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
 
     ap = argparse.ArgumentParser(
         prog="tl-report", description="Send an agent report to the ThroughLog endpoint.")
-    ap.add_argument("--summary", required=True, help="what the agent did (lands in the diary)")
+    ap.add_argument("--summary", required=True, help="what the agent did (lands in the journal)")
     ap.add_argument("--identity", default="agent:unknown",
                     help="agent identity, e.g. agent:claude-code or agent:ci")
     ap.add_argument("--tool", default="", help="tool name, e.g. claude-code / cursor / ci")

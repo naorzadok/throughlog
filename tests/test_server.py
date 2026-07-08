@@ -14,7 +14,7 @@ from throughlog.schema import make_event, FOCUS_SESSION, DEEP_WORK, GIT_COMMIT, 
 
 
 # --------------------------------------------------------------------------- #
-# md_to_html — pure renderer (escaping + the diary subset)
+# md_to_html — pure renderer (escaping + the journal subset)
 # --------------------------------------------------------------------------- #
 class MarkdownRenderer(unittest.TestCase):
     def test_escapes_html_to_prevent_injection(self):
@@ -131,17 +131,17 @@ class HttpSmoke(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = Path(tempfile.mkdtemp(prefix="sal_server_test_"))
-        diaries = cls.tmp / "diaries"
-        pdir = diaries / "project_demo"
+        journal_root = cls.tmp / "journal"
+        pdir = journal_root / "project_demo"
         pdir.mkdir(parents=True)
-        (pdir / "diary.md").write_text(
+        (pdir / "overview.md").write_text(
             "# Demo Project\n**Status:** active\n\n## Current State\n"
             "Wrote the dashboard and verified <it> renders.\n", encoding="utf-8")
         (pdir / "archive.md").write_text("---\n## 2026-06-24\n### Sessions\n- 10:00 — work\n",
                                          encoding="utf-8")
-        (diaries / "executive_summary.md").write_text(
+        (journal_root / "executive_summary.md").write_text(
             "# Executive Summary\n\nShipped the dashboard.\n", encoding="utf-8")
-        (diaries / "daily.md").write_text("## 2026-06-24\n\n**demo** — built the UI\n",
+        (journal_root / "daily.md").write_text("## 2026-06-24\n\n**demo** — built the UI\n",
                                           encoding="utf-8")
 
         data = cls.tmp / "data"
@@ -159,7 +159,7 @@ class HttpSmoke(unittest.TestCase):
             "\n".join(e.to_json() for e in evs) + "\n", encoding="utf-8")
 
         cls.httpd = server.make_server(
-            "127.0.0.1", 0, diaries_dir=diaries, data_dir_path=data,
+            "127.0.0.1", 0, journal_dir=journal_root, data_dir_path=data,
             registry={"demo": "Demo Project"})
         cls.port = cls.httpd.server_address[1]
         cls.thread = threading.Thread(target=cls.httpd.serve_forever, daemon=True)
@@ -187,7 +187,7 @@ class HttpSmoke(unittest.TestCase):
         self.assertIn("Shipped the dashboard.", body)
         self.assertIn('href="/project/demo"', body)
 
-    def test_project_page_renders_diary_and_escapes(self):
+    def test_project_page_renders_overview_and_escapes(self):
         status, body = self._get("/project/demo")
         self.assertEqual(status, 200)
         self.assertIn("Current State", body)
@@ -337,13 +337,13 @@ class PostRoutes(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = Path(tempfile.mkdtemp(prefix="sal_post_test_"))
-        diaries = cls.tmp / "diaries"
-        pdir = diaries / "project_demo"
+        journal_root = cls.tmp / "journal"
+        pdir = journal_root / "project_demo"
         pdir.mkdir(parents=True)
-        (pdir / "diary.md").write_text(
+        (pdir / "overview.md").write_text(
             "# Demo\n## Current State\nShipped the checkout flow.\n", encoding="utf-8")
-        (diaries / "executive_summary.md").write_text("# Exec\n\nA day.\n", encoding="utf-8")
-        sdir = diaries / "summaries"
+        (journal_root / "executive_summary.md").write_text("# Exec\n\nA day.\n", encoding="utf-8")
+        sdir = journal_root / "summaries"
         sdir.mkdir()
         (sdir / "2026-W26.md").write_text(
             "# Weekly summary — 2026-W26\n\nShipped a lot this week.\n", encoding="utf-8")
@@ -354,7 +354,7 @@ class PostRoutes(unittest.TestCase):
         controller = server.Controller(
             on_synthesize=lambda: cls.synth_calls.append(1))
         cls.httpd = server.make_server(
-            "127.0.0.1", 0, diaries_dir=diaries, data_dir_path=data,
+            "127.0.0.1", 0, journal_dir=journal_root, data_dir_path=data,
             registry={"demo": "Demo"}, projects=[], controller=controller,
             csrf_token=cls.TOKEN)
         cls.port = cls.httpd.server_address[1]
@@ -457,26 +457,26 @@ class PostRoutes(unittest.TestCase):
         import unittest.mock as mock
         from throughlog import appconfig
         with mock.patch.object(appconfig, "update_synthesis") as m:
-            body, headers = self._form(_token=self.TOKEN, daily_journal="1",
-                                       journal_period="week", summary_cadence="monthly")
+            body, headers = self._form(_token=self.TOKEN, write_entries="1",
+                                       entry_period="week", summary_cadence="monthly")
             status, _ = self._req("POST", "/settings/synthesis", body=body, headers=headers)
         self.assertEqual(status, 303)
         patch = m.call_args.args[0]
-        self.assertIs(patch["daily_journal"], True)
-        self.assertEqual(patch["journal_period"], "week")
+        self.assertIs(patch["write_entries"], True)
+        self.assertEqual(patch["entry_period"], "week")
         self.assertEqual(patch["summary_cadence"], "monthly")
 
     def test_synthesis_route_rejects_bad_enum(self):
         import unittest.mock as mock
         from throughlog import appconfig
         with mock.patch.object(appconfig, "update_synthesis") as m:
-            body, headers = self._form(_token=self.TOKEN, journal_period="yearly",
+            body, headers = self._form(_token=self.TOKEN, entry_period="yearly",
                                        summary_cadence="hourly")
             self._req("POST", "/settings/synthesis", body=body, headers=headers)
         patch = m.call_args.args[0]
-        self.assertNotIn("journal_period", patch)        # invalid enums dropped
+        self.assertNotIn("entry_period", patch)        # invalid enums dropped
         self.assertNotIn("summary_cadence", patch)
-        self.assertIs(patch["daily_journal"], False)     # unchecked checkbox -> False
+        self.assertIs(patch["write_entries"], False)     # unchecked checkbox -> False
 
     def test_init_route_writes_enrich_toggle(self):
         import unittest.mock as mock

@@ -91,12 +91,12 @@ def synthesis_options_from(config: dict[str, Any] | None = None):
         except FileNotFoundError:
             config = {}
     syn = config.get("synthesis", {}) or {}
-    period = str(syn.get("journal_period", "month")).strip().lower()
+    period = str(syn.get("entry_period", "month")).strip().lower()
     cadence = str(syn.get("summary_cadence", "off")).strip().lower()
     return SynthesisOptions(
-        daily_journal=bool(syn.get("daily_journal", True)),
-        journal_max_tokens=int(syn.get("journal_max_tokens", 1500)),
-        journal_period=period if period in ("month", "week") else "month",
+        write_entries=bool(syn.get("write_entries", True)),
+        entry_max_tokens=int(syn.get("entry_max_tokens", 1500)),
+        entry_period=period if period in ("month", "week") else "month",
         summary_cadence=cadence if cadence in ("off", "weekly", "monthly") else "off",
     )
 

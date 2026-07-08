@@ -4,7 +4,7 @@
 Claude Code runs this on a hook event and passes a JSON object on stdin. We turn
 that into a ThroughLog AGENT_REPORT and POST it to the ThroughLog endpoint, so Claude Code's
 work shows up — trust-classified and attributed to the right project — in your
-diary and dashboard. "Add one hook and Claude Code writes itself into your diary."
+journal and dashboard. "Add one hook and Claude Code writes itself into your journal."
 
 Wire it up in your Claude Code settings (`~/.claude/settings.json` or a project
 `.claude/settings.json`):

@@ -1,11 +1,11 @@
 """tl serve — the local dashboard (M10): give the journal a face.
 
 A read-only, stdlib-only web UI over the artifacts the pipeline already writes:
-the per-project ``diary.md``, the cross-project ``executive_summary.md``, the
+the per-project ``overview.md``, the cross-project ``executive_summary.md``, the
 ``daily.md`` feed, and a reconciled ``Timeline`` of the captured day — plus a live
 capture badge read from ``data/daemon_status.json``.
 
-Why this exists: the diary prose is already good; it just had no face. A local
+Why this exists: the journal prose is already good; it just had no face. A local
 dashboard is what makes the project screenshot-able and is the surface every later
 phase (agent reports, cloud sync) renders into.
 
@@ -13,7 +13,7 @@ Design follows the repo's "pure core + thin driver" rule: the HTML is built by
 **pure functions** (``md_to_html``, ``render_page``, ``overview_html`` …) that are
 unit-tested directly; the ``http.server`` handler is a thin driver. No new runtime
 dependencies — markdown is rendered by a tiny, escaping converter that covers
-exactly the subset our diaries use. Nothing here touches an LLM or the privacy gate
+exactly the subset our journal uses. Nothing here touches an LLM or the privacy gate
 (it only reads already-gated, already-synthesized output).
 """
 
@@ -39,7 +39,7 @@ DEFAULT_PORT = 8799   # not 8787 — that is the agent-ingest endpoint
 
 
 # --------------------------------------------------------------------------- #
-# Markdown — a tiny, safe converter for the diary subset (NO third-party dep).
+# Markdown — a tiny, safe converter for the journal subset (NO third-party dep).
 # Everything is HTML-escaped first; only a known set of constructs is re-marked.
 # --------------------------------------------------------------------------- #
 _BOLD = re.compile(r"\*\*([^*]+)\*\*")
@@ -56,7 +56,7 @@ def _inline(escaped: str) -> str:
 
 
 def md_to_html(md: str) -> str:
-    """Render the markdown subset our diaries use: # / ## / ### headings, bullet
+    """Render the markdown subset our journal uses: # / ## / ### headings, bullet
     lists (``-`` ``*`` ``•``), ``---`` rules, **bold**, `code`, and paragraphs.
     Input is fully escaped before any tag is emitted, so it is injection-safe."""
     out: list[str] = []
@@ -153,7 +153,7 @@ def capture_is_live(data_dir_path: str | Path, *,
 
 
 # --------------------------------------------------------------------------- #
-# Diary discovery + small readers
+# Journal discovery + small readers
 # --------------------------------------------------------------------------- #
 def _read(path: Path) -> str:
     try:
@@ -162,32 +162,32 @@ def _read(path: Path) -> str:
         return ""
 
 
-def _diary_title(diary_path: Path) -> str:
-    for line in _read(diary_path).splitlines():
+def _overview_title(overview_path: Path) -> str:
+    for line in _read(overview_path).splitlines():
         if line.startswith("# "):
             return line[2:].strip()
     return ""
 
 
-def discover_projects(diaries_dir: Path,
+def discover_projects(journal_dir: Path,
                       registry: dict[str, str] | None = None) -> list[tuple[str, str]]:
     """[(project_id, display_name)] for every ``project_*`` dir that has output."""
     registry = registry or {}
     out: list[tuple[str, str]] = []
-    if diaries_dir.exists():
-        for d in sorted(diaries_dir.glob("project_*")):
+    if journal_dir.exists():
+        for d in sorted(journal_dir.glob("project_*")):
             if not d.is_dir():
                 continue
             pid = d.name[len("project_"):]
-            name = registry.get(pid) or _diary_title(d / "diary.md") or pid
+            name = registry.get(pid) or _overview_title(d / "overview.md") or pid
             out.append((pid, name))
     return out
 
 
-def _diary_excerpt(diary_md: str, limit: int = 240) -> str:
+def _overview_excerpt(overview_md: str, limit: int = 240) -> str:
     """The first prose paragraph under '## Current State' (or the first paragraph),
     truncated — used for the project card preview."""
-    lines = diary_md.splitlines()
+    lines = overview_md.splitlines()
     body: list[str] = []
     capturing = False
     for line in lines:
@@ -200,7 +200,7 @@ def _diary_excerpt(diary_md: str, limit: int = 240) -> str:
             body.append(line.strip())
         elif capturing and body:
             break
-    text = " ".join(body) or _first_paragraph(diary_md)
+    text = " ".join(body) or _first_paragraph(overview_md)
     text = re.sub(r"[*`#]", "", text).strip()
     return (text[:limit] + "…") if len(text) > limit else text
 
@@ -255,7 +255,7 @@ letter-spacing:.04em}
 .sech{margin-top:4px}
 .card{background:var(--panel);border:1px solid var(--bd);border-radius:14px;
 padding:18px 22px;margin-bottom:22px}
-.card.diary h1{border-bottom:1px solid var(--bd);padding-bottom:.3em}
+.card.overview h1{border-bottom:1px solid var(--bd);padding-bottom:.3em}
 hr{border:0;border-top:1px solid var(--bd);margin:18px 0}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
 .pcard{background:var(--panel2);border:1px solid var(--bd);border-radius:12px;
@@ -351,7 +351,7 @@ def render_page(title: str, body: str, *, projects: list[tuple[str, str]],
 # --------------------------------------------------------------------------- #
 # Views (pure, given the on-disk artifacts)
 # --------------------------------------------------------------------------- #
-def overview_html(diaries_dir: Path, projects: list[tuple[str, str]], *,
+def overview_html(journal_dir: Path, projects: list[tuple[str, str]], *,
                   controls_html: str = "", chart_svg: str = "",
                   ask_html: str = "") -> str:
     parts: list[str] = ["<h1>Overview</h1>"]
@@ -364,11 +364,11 @@ def overview_html(diaries_dir: Path, projects: list[tuple[str, str]], *,
         parts.append('<h2 class="sech">Time per project (today)</h2>'
                      f'<section class="card chart">{chart_svg}</section>')
 
-    exec_md = _read(diaries_dir / "executive_summary.md")
+    exec_md = _read(journal_dir / "executive_summary.md")
     if exec_md.strip():
         parts.append(f'<section class="card">{md_to_html(exec_md)}</section>')
 
-    sdir = diaries_dir / "summaries"
+    sdir = journal_dir / "summaries"
     sums = sorted((p.stem for p in sdir.glob("*.md")), reverse=True) if sdir.is_dir() else []
     if sums:
         latest = _read(sdir / f"{sums[0]}.md")
@@ -380,7 +380,7 @@ def overview_html(diaries_dir: Path, projects: list[tuple[str, str]], *,
     if projects:
         cards = []
         for pid, name in projects:
-            excerpt = _diary_excerpt(_read(diaries_dir / f"project_{pid}" / "diary.md"))
+            excerpt = _overview_excerpt(_read(journal_dir / f"project_{pid}" / "overview.md"))
             cards.append(
                 f'<a class="pcard" href="/project/{html.escape(pid, quote=True)}">'
                 f'<b>{html.escape(name)}</b><p>{html.escape(excerpt) or "—"}</p></a>'
@@ -388,69 +388,69 @@ def overview_html(diaries_dir: Path, projects: list[tuple[str, str]], *,
         parts.append('<h2 class="sech">Projects</h2>'
                      f'<div class="grid">{"".join(cards)}</div>')
     else:
-        parts.append('<section class="card"><p class="empty">No diaries yet. Run '
+        parts.append('<section class="card"><p class="empty">No journal yet. Run '
                      '<code>python -m throughlog.cli synthesize --replay --no-llm</code> '
                      'then refresh.</p></section>')
 
-    daily_md = _read(diaries_dir / "daily.md")
+    daily_md = _read(journal_dir / "daily.md")
     if daily_md.strip():
         parts.append('<h2 class="sech">Daily feed</h2>'
                      f'<section class="card">{md_to_html(daily_md)}</section>')
     return "\n".join(parts)
 
 
-def project_html(diaries_dir: Path, pid: str) -> str:
-    pdir = diaries_dir / f"project_{pid}"
-    diary = _read(pdir / "diary.md")
-    if not diary.strip():
-        return ('<section class="card"><p class="empty">No diary for this project '
+def project_html(journal_dir: Path, pid: str) -> str:
+    pdir = journal_dir / f"project_{pid}"
+    overview = _read(pdir / "overview.md")
+    if not overview.strip():
+        return ('<section class="card"><p class="empty">No overview for this project '
                 'yet.</p></section>')
     pid_q = html.escape(pid, quote=True)
     links: list[str] = []
     if (pdir / "archive.md").exists():
         links.append(f'<a href="/archive/{pid_q}">View full archive →</a>')
-    if (pdir / "journal").is_dir() and any((pdir / "journal").glob("*.md")):
-        links.append(f'<a href="/journal/{pid_q}">View detailed journal →</a>')
+    if (pdir / "entries").is_dir() and any((pdir / "entries").glob("*.md")):
+        links.append(f'<a href="/entries/{pid_q}">View detailed entries →</a>')
     links_html = (f'<p style="margin-top:18px">{" &nbsp;·&nbsp; ".join(links)}</p>'
                   if links else "")
-    return f'<article class="card diary">{md_to_html(diary)}{links_html}</article>'
+    return f'<article class="card overview">{md_to_html(overview)}{links_html}</article>'
 
 
-def archive_html(diaries_dir: Path, pid: str) -> str:
-    archive = _read(diaries_dir / f"project_{pid}" / "archive.md")
+def archive_html(journal_dir: Path, pid: str) -> str:
+    archive = _read(journal_dir / f"project_{pid}" / "archive.md")
     if not archive.strip():
         return '<section class="card"><p class="empty">No archive yet.</p></section>'
-    back = (f'<p><a href="/project/{html.escape(pid, quote=True)}">← back to diary</a></p>')
+    back = (f'<p><a href="/project/{html.escape(pid, quote=True)}">← back to overview</a></p>')
     return f'{back}<article class="card">{md_to_html(archive)}</article>'
 
 
-def journal_html(diaries_dir: Path, pid: str, month: str | None = None) -> str:
-    """Render ONE month of the tier-2 detailed journal (newest by default), with links to
+def entries_html(journal_dir: Path, pid: str, month: str | None = None) -> str:
+    """Render ONE month of the tier-2 detailed entries (newest by default), with links to
     the other months — never the whole year as a single page. ``month`` is honored only
     when it matches an existing month file, so a crafted value can never escape the dir."""
-    journal_dir = diaries_dir / f"project_{pid}" / "journal"
-    months = sorted((p.stem for p in journal_dir.glob("*.md")), reverse=True) \
-        if journal_dir.is_dir() else []
+    entries_dir = journal_dir / f"project_{pid}" / "entries"
+    months = sorted((p.stem for p in entries_dir.glob("*.md")), reverse=True) \
+        if entries_dir.is_dir() else []
     if not months:
-        return ('<section class="card"><p class="empty">No detailed journal yet.</p>'
+        return ('<section class="card"><p class="empty">No detailed entries yet.</p>'
                 '</section>')
     sel = month if month in months else months[0]
     pid_q = html.escape(pid, quote=True)
-    back = f'<p><a href="/project/{pid_q}">← back to diary</a></p>'
+    back = f'<p><a href="/project/{pid_q}">← back to overview</a></p>'
     nav = " &nbsp;·&nbsp; ".join(
         (f'<strong>{html.escape(m)}</strong>' if m == sel
-         else f'<a href="/journal/{pid_q}/{html.escape(m, quote=True)}">{html.escape(m)}</a>')
+         else f'<a href="/entries/{pid_q}/{html.escape(m, quote=True)}">{html.escape(m)}</a>')
         for m in months)
-    body = md_to_html(_read(journal_dir / f"{sel}.md"))
-    return (f'{back}<section class="card"><p>Journal periods: {nav}</p></section>'
+    body = md_to_html(_read(entries_dir / f"{sel}.md"))
+    return (f'{back}<section class="card"><p>Entry periods: {nav}</p></section>'
             f'<article class="card">{body}</article>')
 
 
-def summary_html(diaries_dir: Path, period: str | None = None) -> str:
+def summary_html(journal_dir: Path, period: str | None = None) -> str:
     """Render ONE period of the cross-project retrospective (newest by default), with links
     to the other periods. ``period`` is honored only when it matches an existing summary
-    file stem, so a crafted value can never escape ``diaries/summaries/``."""
-    sdir = diaries_dir / "summaries"
+    file stem, so a crafted value can never escape ``journal/summaries/``."""
+    sdir = journal_dir / "summaries"
     periods = sorted((p.stem for p in sdir.glob("*.md")), reverse=True) \
         if sdir.is_dir() else []
     if not periods:
@@ -688,7 +688,7 @@ def answer_html(ans: Any) -> str:
     srcs = [s for s in (getattr(ans, "sources", None) or [])]
     src_html = (f'<p class="empty" style="font-size:12px">sources: '
                 f'{html.escape(", ".join(dict.fromkeys(srcs)))}</p>') if srcs else ""
-    note = ('<p class="note">model unavailable — showing the matching diary '
+    note = ('<p class="note">model unavailable — showing the matching overview '
             'sections.</p>') if getattr(ans, "error", "") else ""
     return f'<div class="answer">{note}{body}{src_html}</div>'
 
@@ -773,16 +773,16 @@ def settings_html(cfg: dict[str, Any], projects: list[dict[str, Any]], *,
     parts.append(
         '<section class="card"><h2 class="sech" style="margin-top:0">Journal &amp; '
         'summaries</h2>'
-        '<p class="empty" style="font-size:13px">The detailed journal keeps the specifics '
-        '(values tried, results, decisions); the living diary stays high-level. A period '
+        '<p class="empty" style="font-size:13px">The detailed entries keep the specifics '
+        '(values tried, results, decisions); the living overview stays high-level. A period '
         'summary distils a week or month across all projects (needs an LLM key).</p>'
         '<form method="post" action="/settings/synthesis">' + _hidden_token(token) +
-        _checkbox("daily_journal", "Write the detailed journal",
-                  bool(syn.get("daily_journal", True))) +
-        _select("journal_period", "Journal file grouping",
-                str(syn.get("journal_period", "month")).lower(),
-                [("month", "Monthly  (journal/YYYY-MM.md)"),
-                 ("week", "Weekly  (journal/YYYY-Www.md)")]) +
+        _checkbox("write_entries", "Write the detailed entries",
+                  bool(syn.get("write_entries", True))) +
+        _select("entry_period", "Journal file grouping",
+                str(syn.get("entry_period", "month")).lower(),
+                [("month", "Monthly  (entries/YYYY-MM.md)"),
+                 ("week", "Weekly  (entries/YYYY-Www.md)")]) +
         _select("summary_cadence", "Period summary",
                 str(syn.get("summary_cadence", "off")).lower(),
                 [("off", "Off"), ("weekly", "Weekly"), ("monthly", "Monthly")]) +
@@ -834,7 +834,7 @@ def settings_html(cfg: dict[str, Any], projects: list[dict[str, Any]], *,
         f'<div class="proj"><div><b>Start capturing at logon</b>'
         f'<div class="meta">{_pill(cap_on, "On — runs hidden in the background")}</div>'
         f'</div>{cap_ctl}</div>'
-        f'<div class="proj"><div><b>Synthesize the diary every night</b>'
+        f'<div class="proj"><div><b>Synthesize the journal every night</b>'
         f'<div class="meta">{_pill(syn_on, "On — runs nightly at " + html.escape(syn_time))}'
         f'</div></div>{syn_off}</div>{syn_ctl}</section>'
     )
@@ -1085,7 +1085,7 @@ def _set_nightly(enable: bool, *, time_hhmm: str = "22:30") -> tuple[bool, str]:
 # --------------------------------------------------------------------------- #
 # HTTP driver (thin)
 # --------------------------------------------------------------------------- #
-def build_handler(diaries_dir: Path, data_dir_path: Path, registry: dict[str, str],
+def build_handler(journal_dir: Path, data_dir_path: Path, registry: dict[str, str],
                   *, projects: list[dict[str, Any]] | None = None,
                   controller: Controller | None = None,
                   csrf_token: str | None = None):
@@ -1125,7 +1125,7 @@ def build_handler(diaries_dir: Path, data_dir_path: Path, registry: dict[str, st
 
         def _page(self, title: str, body: str, *, active: str = "",
                   code: int = 200) -> None:
-            projects_nav = discover_projects(diaries_dir, registry)
+            projects_nav = discover_projects(journal_dir, registry)
             status = read_status(data_dir_path)
             self._send(render_page(title, body, projects=projects_nav, active=active,
                                    status=status), code=code)
@@ -1153,11 +1153,11 @@ def build_handler(diaries_dir: Path, data_dir_path: Path, registry: dict[str, st
                 return ""
 
         def _render_overview(self, *, question: str = "", ans_html: str = "") -> None:
-            projects_nav = discover_projects(diaries_dir, registry)
+            projects_nav = discover_projects(journal_dir, registry)
             controls = control_bar_html(token, has_capture=ctrl.has_capture,
                                         paused=ctrl.paused(), can_quit=ctrl.can_quit)
             ask = ask_box_html(token, question=question, answer_html=ans_html)
-            body = overview_html(diaries_dir, projects_nav, controls_html=controls,
+            body = overview_html(journal_dir, projects_nav, controls_html=controls,
                                  chart_svg=self._chart_svg(), ask_html=ask)
             self._page("Overview", body, active="overview")
 
@@ -1194,21 +1194,21 @@ def build_handler(diaries_dir: Path, data_dir_path: Path, registry: dict[str, st
                 elif path.startswith("/project/"):
                     pid = unquote(path[len("/project/"):])
                     name = registry.get(pid, pid)
-                    self._page(name, project_html(diaries_dir, pid), active=pid)
+                    self._page(name, project_html(journal_dir, pid), active=pid)
                 elif path.startswith("/archive/"):
                     pid = unquote(path[len("/archive/"):])
-                    self._page("Archive", archive_html(diaries_dir, pid), active=pid)
-                elif path.startswith("/journal/"):
-                    parts = [unquote(p) for p in path[len("/journal/"):].split("/") if p]
+                    self._page("Archive", archive_html(journal_dir, pid), active=pid)
+                elif path.startswith("/entries/"):
+                    parts = [unquote(p) for p in path[len("/entries/"):].split("/") if p]
                     pid = parts[0] if parts else ""
                     month = parts[1] if len(parts) > 1 else None
                     self._page(registry.get(pid, pid),
-                               journal_html(diaries_dir, pid, month), active=pid)
+                               entries_html(journal_dir, pid, month), active=pid)
                 elif path == "/summaries":
-                    self._page("Summaries", summary_html(diaries_dir), active="summaries")
+                    self._page("Summaries", summary_html(journal_dir), active="summaries")
                 elif path.startswith("/summary/"):
                     period = unquote(path[len("/summary/"):].strip("/").split("/")[0])
-                    self._page("Summaries", summary_html(diaries_dir, period),
+                    self._page("Summaries", summary_html(journal_dir, period),
                                active="summaries")
                 elif path == "/api/status":
                     self._send(json.dumps(read_status(data_dir_path) or {}),
@@ -1282,11 +1282,11 @@ def build_handler(diaries_dir: Path, data_dir_path: Path, registry: dict[str, st
                     appconfig.update_privacy(patch)
                     self._redirect("/settings?saved=privacy")
                 elif path == "/settings/synthesis":
-                    period = field("journal_period").strip().lower()
+                    period = field("entry_period").strip().lower()
                     cadence = field("summary_cadence").strip().lower()
-                    patch = {"daily_journal": "daily_journal" in form}
+                    patch = {"write_entries": "write_entries" in form}
                     if period in ("month", "week"):
-                        patch["journal_period"] = period
+                        patch["entry_period"] = period
                     if cadence in ("off", "weekly", "monthly"):
                         patch["summary_cadence"] = cadence
                     appconfig.update_synthesis(patch)
@@ -1337,7 +1337,7 @@ def build_handler(diaries_dir: Path, data_dir_path: Path, registry: dict[str, st
             ans_html = ""
             if question:
                 from throughlog import ask as askmod
-                corpus = askmod.load_corpus(diaries_dir)
+                corpus = askmod.load_corpus(journal_dir)
                 client = _llm_client(self._cfg())
                 ans = askmod.answer(question, corpus, client)
                 ans_html = answer_html(ans)
@@ -1386,7 +1386,7 @@ def build_handler(diaries_dir: Path, data_dir_path: Path, registry: dict[str, st
     return Handler
 
 
-def make_server(host: str, port: int, *, diaries_dir: Path, data_dir_path: Path,
+def make_server(host: str, port: int, *, journal_dir: Path, data_dir_path: Path,
                 registry: dict[str, str],
                 projects: list[dict[str, Any]] | None = None,
                 controller: Controller | None = None,
@@ -1395,27 +1395,27 @@ def make_server(host: str, port: int, *, diaries_dir: Path, data_dir_path: Path,
     port (used by tests)."""
     from http.server import HTTPServer
     return HTTPServer((host, port),
-                      build_handler(diaries_dir, data_dir_path, registry,
+                      build_handler(journal_dir, data_dir_path, registry,
                                     projects=projects, controller=controller,
                                     csrf_token=csrf_token))
 
 
 def serve(*, host: str = "127.0.0.1", port: int = DEFAULT_PORT,
-          diaries_dir: str | Path | None = None,
+          journal_dir: str | Path | None = None,
           data_dir_path: str | Path | None = None,
           registry: dict[str, str] | None = None,
           projects: list[dict[str, Any]] | None = None,
           controller: Controller | None = None,
           open_browser: bool = True) -> None:
-    """Run the dashboard until Ctrl+C, resolving diaries/data dirs from config.
+    """Run the dashboard until Ctrl+C, resolving journal/data dirs from config.
 
     `registry` (project id -> display name) and `projects` (full registry entries,
     needed for the time-per-project chart) may be supplied to override what is
     derived from projects.json — used by `tl demo` to label the built-in day.
     `controller` wires the live-capture supervisor in (passed by `tl up`)."""
     cfg = load_config() if (BASE_DIR / "config.json").exists() else {}
-    ddir = Path(diaries_dir) if diaries_dir else \
-        BASE_DIR / cfg.get("paths", {}).get("diaries_dir", "diaries")
+    ddir = Path(journal_dir) if journal_dir else \
+        BASE_DIR / cfg.get("paths", {}).get("journal_dir", "journal")
     datadir = Path(data_dir_path) if data_dir_path else data_dir(cfg)
     if projects is None:
         try:
@@ -1425,12 +1425,12 @@ def serve(*, host: str = "127.0.0.1", port: int = DEFAULT_PORT,
     if registry is None:
         registry = {p["id"]: p.get("name", p["id"]) for p in projects}
 
-    httpd = make_server(host, port, diaries_dir=ddir, data_dir_path=datadir,
+    httpd = make_server(host, port, journal_dir=ddir, data_dir_path=datadir,
                         registry=registry, projects=projects, controller=controller)
     if controller is not None:
         controller.bind_server(httpd)   # enables the dashboard Quit button
     url = f"http://{host}:{httpd.server_address[1]}/"
-    print(f"[tl] dashboard at {url}  (diaries: {ddir})  —  Ctrl+C to stop")
+    print(f"[tl] dashboard at {url}  (journal: {ddir})  —  Ctrl+C to stop")
     if open_browser:
         import threading
         import webbrowser

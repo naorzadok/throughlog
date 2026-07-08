@@ -1,6 +1,6 @@
 {
   "name": "a4_overnight_unattended",
-  "description": "A4 — an overnight run finishes at 03:14 with no human present. The agent's report is ingested, validated and timestamped at its real ts_wall, so it lands on the correct day ready for the next day's diary.",
+  "description": "A4 — an overnight run finishes at 03:14 with no human present. The agent's report is ingested, validated and timestamped at its real ts_wall, so it lands on the correct day ready for the next day's journal.",
   "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
   "agents": {
     "now": "2026-06-21T09:00:00+03:00",

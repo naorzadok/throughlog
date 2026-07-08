@@ -19,7 +19,7 @@ verification.md
 
 # Logs and runtime data
 data/
-diaries/
+journal/
 *.log
 *.jsonl
 *.txt

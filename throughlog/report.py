@@ -1,7 +1,7 @@
-"""Push outputs — deliver the diary where work happens (`tl report`).
+"""Push outputs — deliver the journal where work happens (`tl report`).
 
-A diary in a folder is passive. This turns the already-synthesized output
-(``diaries/daily.md`` + ``diaries/executive_summary.md``) into a daily standup
+A journal in a folder is passive. This turns the already-synthesized output
+(``journal/daily.md`` + ``journal/executive_summary.md``) into a daily standup
 message and pushes it to stdout, Slack, or a GitHub issue/PR comment.
 
 These are integration adapters layered *on top of* ``synthesize.py`` output — they
@@ -90,12 +90,12 @@ class ReportInputs:
     period_label: str = ""          # e.g. "2026-W26" / "2026-06"
 
 
-def _newest_period_summary(diaries_dir: Path, granularity: str) -> tuple[str, str]:
+def _newest_period_summary(journal_dir: Path, granularity: str) -> tuple[str, str]:
     """``(body, period_label)`` of the newest ``summaries/<stem>.md`` matching the
     granularity ('week' stems carry '-W', 'month' stems don't), or ``("", "")``. Lets a
     weekly/monthly report push the real synthesized retrospective instead of regluing
     the daily paragraphs."""
-    sdir = Path(diaries_dir) / "summaries"
+    sdir = Path(journal_dir) / "summaries"
     if not sdir.is_dir():
         return "", ""
     want_week = granularity == "week"
@@ -109,9 +109,9 @@ def _newest_period_summary(diaries_dir: Path, granularity: str) -> tuple[str, st
     return "", ""
 
 
-def load_inputs(diaries_dir: str | Path, *, date: str | None = None,
+def load_inputs(journal_dir: str | Path, *, date: str | None = None,
                 weekly: bool = False, monthly: bool = False) -> ReportInputs:
-    d = Path(diaries_dir)
+    d = Path(journal_dir)
     daily = (d / "daily.md").read_text(encoding="utf-8") if (d / "daily.md").exists() else ""
     exec_md = ""
     ep = d / "executive_summary.md"
@@ -148,7 +148,7 @@ def standup_markdown(inp: ReportInputs, *, weekly: bool = False,
         return f"## {title}\n\n{inp.period_summary.strip()}\n"
     out: list[str] = [f"## {_title(inp.sections, weekly)}", ""]
     if not inp.sections:
-        out.append("_No diary entries found for the requested period._")
+        out.append("_No journal entries found for the requested period._")
         return "\n".join(out) + "\n"
     for sec in inp.sections:
         if weekly:

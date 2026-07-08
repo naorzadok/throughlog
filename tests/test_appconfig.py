@@ -114,11 +114,11 @@ class UpdateSynthesisAndInit(unittest.TestCase):
             cfgp = Path(d) / "config.json"
             cfgp.write_text(json.dumps({"relay": {"tokens": {"k": "v"}}}), encoding="utf-8")
             appconfig.update_synthesis(
-                {"daily_journal": False, "journal_period": "week",
+                {"write_entries": False, "entry_period": "week",
                  "summary_cadence": "monthly", "BOGUS": "x"}, config_path=cfgp)
             out = json.loads(cfgp.read_text(encoding="utf-8"))
-            self.assertIs(out["synthesis"]["daily_journal"], False)
-            self.assertEqual(out["synthesis"]["journal_period"], "week")
+            self.assertIs(out["synthesis"]["write_entries"], False)
+            self.assertEqual(out["synthesis"]["entry_period"], "week")
             self.assertEqual(out["synthesis"]["summary_cadence"], "monthly")
             self.assertNotIn("BOGUS", out["synthesis"])
             self.assertEqual(out["relay"], {"tokens": {"k": "v"}})   # unrelated keys kept

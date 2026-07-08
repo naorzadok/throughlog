@@ -10,12 +10,12 @@ is**, and **exactly how to install, configure, and run it**.
 
 ThroughLog watches what you do on your computer all day — which windows you
 focus, which files you save, what you copy, when you walk away — and at the end of the
-day it writes that activity up as **a plain-English diary, one per project**, plus a
+day it writes that activity up as **a plain-English journal, one per project**, plus a
 short **executive summary** across everything. You never log anything by hand.
 
-Think of it as an **automatic flight recorder for your work** — including the work your
+Think of it as an **automatic, self-writing journal of your work** — including the work your
 AI agents do. Instead of trying to remember "what did I actually get done this week?",
-you open `diaries/` (or the local dashboard) and read it.
+you open `journal/` (or the local dashboard) and read it.
 
 It's designed to keep working in the situations that defeat normal time-trackers:
 
@@ -25,11 +25,11 @@ It's designed to keep working in the situations that defeat normal time-trackers
   as real work (`LONG_RUN`), not as "idle".
 - **AI agents — local *and* cloud** — work done by autonomous agents (a Claude Code run
   on your machine, or a cloud agent that opens a PR you never touched) is a first-class
-  source and gets folded into the same diaries.
+  source and gets folded into the same journal.
 - **Work that never touched this machine** — commits, PRs and CI runs on tracked GitHub
-  repos can be *pulled in* so the diary is complete even for cloud/remote activity.
+  repos can be *pulled in* so the journal is complete even for cloud/remote activity.
 
-And once the diaries exist, you can **read them in a browser** (`tl serve`), **push** a
+And once the journal exist, you can **read them in a browser** (`tl serve`), **push** a
 standup to Slack or a GitHub comment (`tl report`), and **sync** across devices through
 a self-hostable relay (`tl relay` / `tl sync`) — all without weakening the privacy
 guarantees below.
@@ -48,7 +48,7 @@ guarantees below.
   whisper notes │     │ → drop secrets      │    │ de-dup     │    │ only if ambiguous)   │        via relay)
   AI-agent runs │     │ → stamp audit trail │    └────────────┘     │                      └────────────────────
   pulled GitHub ┘     └────────────────────┘           │           └ Phase 2: write the
-   (commits/PRs)              │                  data/events/         diary + summary
+   (commits/PRs)              │                  data/events/         journal + summary
                        nothing reaches disk      YYYYMMDD.jsonl       (LLM writes prose)
                        until it passes here                                  │
                               │                                       ┌──────┴───── before any cloud send,
@@ -71,7 +71,7 @@ Two principles are worth internalizing, because they explain every design choice
 
 2. **The AI is used in exactly two narrow places.** Everything else is deterministic and
    testable. The LLM is only called (a) to categorize a handful of genuinely ambiguous
-   events, and (b) to write the diary prose. If the LLM is offline or has no API key, the
+   events, and (b) to write the journal prose. If the LLM is offline or has no API key, the
    pipeline still runs and still produces a deterministic archive — it just skips the
    pretty prose. Your events are never lost because a model failed. The capture layer, the
    dashboard, onboarding, push outputs, account pull, and the relay are **all
@@ -107,8 +107,8 @@ already passed the gate ever leave the machine, and only repos you've listed are
   the Windows path. If you're on macOS/Linux you can always analyze, serve, report, pull,
   relay and sync; live capture is best-effort.
 - **Python 3.12+**. Check with `python --version`.
-- **(Optional) a free OpenRouter API key** for the diary prose. Without it, you still get
-  the deterministic archive of everything — you just don't get the written-up diary.
+- **(Optional) a free OpenRouter API key** for the journal prose. Without it, you still get
+  the deterministic archive of everything — you just don't get the written-up journal.
 
 ---
 
@@ -175,7 +175,7 @@ paths and keys): **`projects.json`** and **`config.json`**. Each ships as a
 
 Hand-authoring `projects.json` is a wall. `tl init` scans a folder for git repos and
 generates a project per repo — with `signals.paths`, normalized `git_remotes`, and
-inferred `keywords` / `window_patterns` — so you go from clone to first diary in minutes
+inferred `keywords` / `window_patterns` — so you go from clone to first journal in minutes
 with no manual regex authoring.
 
 ```powershell
@@ -192,7 +192,7 @@ only adds repos it hasn't seen. After it runs, open `projects.json` and improve 
 
 ### 6.2 `projects.json` — the most important file
 
-This is the registry of projects you want diaries for. The richer each definition, the
+This is the registry of projects you want journal for. The richer each definition, the
 better the logger attributes your activity. A project looks like this:
 
 ```json
@@ -219,8 +219,8 @@ better the logger attributes your activity. A project looks like this:
 
 | Field | What it does |
 |---|---|
-| `id` | URL-safe slug; becomes the diary folder name `diaries/project_<id>/`. |
-| `name` | Human-readable title shown in the diary. |
+| `id` | URL-safe slug; becomes the journal folder name `journal/project_<id>/`. |
+| `name` | Human-readable title shown in the journal. |
 | `description` | 2–4 sentences. **The single most valuable field** — it's what the LLM reads when rules can't decide. |
 | `signals.paths` | **The privacy allowlist.** Folders to watch; file saves/windows under them are a strong match. Anything outside every project's paths (and `allowlist_extra`) is never recorded. |
 | `signals.keywords` | Words matched in window titles / clipboard / whisper notes. |
@@ -261,7 +261,7 @@ fill them in):
     "max_retries": 3
   },
   "privacy": { "allowlist_extra": [] },
-  "paths": { "data_dir": "data", "diaries_dir": "diaries" },
+  "paths": { "data_dir": "data", "journal_dir": "journal" },
 
   "report":       { "slack_webhook": "", "github_token": "" },
   "integrations": { "github": { "token": "" } },
@@ -288,7 +288,7 @@ The other sections (used only by the commands that need them):
 | Section | Used by | What it holds |
 |---|---|---|
 | `privacy.allowlist_extra` | the gate | extra folders to watch beyond your projects' paths. |
-| `paths` | everything | where events (`data/`) and diaries (`diaries/`) are written. |
+| `paths` | everything | where events (`data/`) and journal (`journal/`) are written. |
 | `report.slack_webhook` / `report.github_token` | `tl report` | a Slack incoming-webhook URL and/or a GitHub token for posting standups. |
 | `integrations.github.token` | `tl pull --github` | a GitHub token for pulling tracked repos' commits/PRs/CI. |
 | `relay.tokens` | `tl relay` | a `{ "secret-token": "account-name" }` map — one entry per account that may report/sync. |
@@ -302,7 +302,7 @@ below), so you never have to keep tokens in a file.
 ## 7. Everyday use
 
 The day has two halves: **capture** (record all day) and **synthesize** (turn the
-recording into diaries, e.g. each night). Then you **read**, **share**, and optionally
+recording into journal, e.g. each night). Then you **read**, **share**, and optionally
 **sync** the result.
 
 ### 7.1 Capture your day (console)
@@ -316,7 +316,7 @@ This starts the **supervisor**: it runs every source at once (focus, process/lon
 the file/git watcher, clipboard, and the agent drop-folder), each in its own thread, all
 feeding one privacy-gated bus. It writes a heartbeat to `data/daemon_status.json`, shuts
 down cleanly on Ctrl+C (each source flushes its in-progress session), and one failing
-source never takes the others down. The tool excludes its own `data/` and `diaries/`
+source never takes the others down. The tool excludes its own `data/` and `journal/`
 folders so it never records itself.
 
 ### 7.2 Capture with the tray icon (recommended)
@@ -332,8 +332,8 @@ without a console:
 - the menu shows a live status line (events captured, sources alive);
 - **Pause / Resume** — flip the privacy pause;
 - **Whisper note…** — type what you're doing (see below);
-- **Synthesize now** — build diaries from what's captured so far;
-- **Open diaries folder** / **Quit** — Quit shuts capture down cleanly.
+- **Synthesize now** — build journal from what's captured so far;
+- **Open journal folder** / **Quit** — Quit shuts capture down cleanly.
 
 ### 7.3 Controls while capturing
 
@@ -345,7 +345,7 @@ without a console:
   **dropped, not buffered**. Nothing you do during a pause is ever stored. Use it for
   anything you don't want recorded.
 
-### 7.4 Turn the day into diaries (synthesize)
+### 7.4 Turn the day into journal (synthesize)
 
 ```powershell
 python -m throughlog.cli synthesize                 # analyze everything captured in data/events/
@@ -359,14 +359,14 @@ LLM only for the genuinely ambiguous handful), and **Phase 2** writes the prose.
 
 ### 7.5 Reading the output (files)
 
-Everything lands in `diaries/`:
+Everything lands in `journal/`:
 
 | File | What it is |
 |---|---|
-| `diaries/project_<id>/archive.md` | **Append-only, deterministic.** One section per day: sessions, commits, files, narration. Written even with no LLM, never rewritten. This is your permanent factual record. |
-| `diaries/project_<id>/diary.md` | A **living narrative**, rewritten by the LLM each run — current state, ongoing threads, the story of the project. |
-| `diaries/daily.md` | A shared cross-project log, newest day on top. |
-| `diaries/executive_summary.md` | A short LLM summary across **all** projects — your "what happened lately" overview. |
+| `journal/project_<id>/archive.md` | **Append-only, deterministic.** One section per day: sessions, commits, files, narration. Written even with no LLM, never rewritten. This is your permanent factual record. |
+| `journal/project_<id>/overview.md` | A **living narrative**, rewritten by the LLM each run — current state, ongoing threads, the story of the project. |
+| `journal/daily.md` | A shared cross-project log, newest day on top. |
+| `journal/executive_summary.md` | A short LLM summary across **all** projects — your "what happened lately" overview. |
 
 A good first run to try right now, before you've captured anything: **`python -m throughlog.cli
 demo`** generates a small synthetic day (two projects plus an AI-agent thread),
@@ -375,17 +375,17 @@ Add `--no-serve` to just write the files.
 
 ### 7.6 See it in a browser: `tl serve`
 
-The diaries are nice files, but the dashboard is what makes the project *legible at a
+The journal are nice files, but the dashboard is what makes the project *legible at a
 glance* (and screenshot-able). It's a tiny, local, read-only web server over whatever
 you've already synthesized — **pure standard library, no new dependencies**.
 
 ```powershell
 python -m throughlog.cli serve                 # http://127.0.0.1:8799  (auto-opens a browser)
 python -m throughlog.cli serve --port 9000 --no-browser
-python -m throughlog.cli serve --diaries some/dir --data some/data
+python -m throughlog.cli serve --journal-dir some/dir --data some/data
 ```
 
-Views: an overview of all projects, each project's rendered `diary.md`, the reconciled
+Views: an overview of all projects, each project's rendered `overview.md`, the reconciled
 timeline of the day, the executive summary, and a **live-capture badge** (green when
 `data/daemon_status.json` shows a fresh heartbeat). It binds to `127.0.0.1` (your machine
 only) by default. The fastest way to see it on a fresh clone — one command, no key, no
@@ -395,7 +395,7 @@ config:
 python -m throughlog.cli demo                  # builds a demo day AND opens the dashboard on it
 ```
 
-Or point `serve` at any diaries you've already built:
+Or point `serve` at any journal you've already built:
 
 ```powershell
 python -m throughlog.cli synthesize --replay --no-llm
@@ -404,9 +404,9 @@ python -m throughlog.cli serve
 
 ---
 
-## 8. Share your diary: `tl report`
+## 8. Share your journal: `tl report`
 
-A diary in a folder is passive. `tl report` formats the standup/summary and delivers it
+A journal in a folder is passive. `tl report` formats the standup/summary and delivers it
 where work happens — to your terminal, a Slack channel, or a GitHub issue/PR comment. It's
 a thin formatter over the synthesized `daily.md` + `executive_summary.md`; it never calls
 an LLM.
@@ -453,14 +453,14 @@ python -m throughlog.cli pull --github --token ghp_xxx --interval 120
 - The token comes from `--token`, else `$GITHUB_TOKEN`, else `integrations.github.token` in
   `config.json`.
 
-After a pull, run `synthesize` and the cloud work shows up in the diaries alongside your
+After a pull, run `synthesize` and the cloud work shows up in the journal alongside your
 local work.
 
 ### 9.2 AI-agent reports (local agents)
 
 Autonomous agents are a first-class source. There are two ways to feed an agent's work in;
 both end up validated, trust-classified, reconciled by the agent's own timestamp, and
-folded into the diaries.
+folded into the journal.
 
 **(a) Drop a JSON file** into `data/agent_drop/` — this works out of the box while `tl
 capture` is running (the supervisor watches that folder). A minimal report
@@ -484,7 +484,7 @@ capture` is running (the supervisor watches that folder). A minimal report
 `http://127.0.0.1:8787/report`); if no listener is up it **falls back to writing into the
 drop folder**, so it never blocks the agent. The ready-made **Claude Code hook**
 (`integrations/claude_code/tl_hook.py`) is the highest-leverage integration — add it once
-and Claude Code writes itself into your work diary. It reads three optional env vars:
+and Claude Code writes itself into your work journal. It reads three optional env vars:
 `SAL_ENDPOINT` (where to POST; default the 8787 endpoint), `SAL_TOKEN` (a relay bearer
 token), and `SAL_DROP_DIR` (the fallback folder). See `integrations/README.md` for the one
 documented JSON contract and the JS client.
@@ -499,7 +499,7 @@ the local drop-folder source with `--no-agents`.
 ## 10. Going multi-device / cloud: `tl relay` + `tl sync`
 
 This is the optional, **self-hostable** layer that makes the journal reachable beyond one
-machine — cloud agents report in, and you read your diary from another device — **without
+machine — cloud agents report in, and you read your journal from another device — **without
 weakening the privacy moat.**
 
 **Run the relay** (a small multi-account HTTP service: `POST /report` for agents,
@@ -555,7 +555,7 @@ python -m throughlog.cli autostart enable --tray     # ...or bring up the tray i
 python -m throughlog.cli autostart disable           # stop auto-starting
 python -m throughlog.cli autostart status            # is the task registered?
 
-# Write the diaries automatically every night at 22:30:
+# Write the journal automatically every night at 22:30:
 python -m throughlog.cli schedule enable --time 22:30
 python -m throughlog.cli schedule enable --time 07:00 --no-llm   # e.g. a deterministic morning run
 python -m throughlog.cli schedule disable
@@ -563,8 +563,8 @@ python -m throughlog.cli schedule status
 ```
 
 A typical hands-free setup: `autostart enable --tray` (records whenever you're logged in,
-with a visible icon) + `schedule enable --time 22:30` (diaries appear overnight). In the
-morning, open `diaries/` or run `tl serve`.
+with a visible icon) + `schedule enable --time 22:30` (journal appear overnight). In the
+morning, open `journal/` or run `tl serve`.
 
 > The scheduled tasks launch the project's `venv` Python if it exists (so the capture
 > libraries are present), otherwise the Python that registered them. Keep the venv around
@@ -581,8 +581,8 @@ morning, open `diaries/` or run `tl serve`.
 | `tl init [root]` | Auto-discover git repos under `root` (default `~/projects`) into `projects.json`. Merge-only. Flags: `--dry-run`, `--depth N` (default 4), `--out PATH`. |
 | `tl capture` | Record live in the console (`Ctrl+C` to stop). Flags: `--no-clipboard`, `--no-agents`, `--no-hotkeys`, `--heartbeat SEC`. |
 | `tl tray` | Record live behind a tray icon. Same source flags. |
-| `tl synthesize` | Build diaries from captured events. Sources: `--date YYYYMMDD`, `--events FILE`, `--replay` (default: all of `data/events/`). `--no-llm` = deterministic only. `--diaries DIR` to override output. |
-| `tl serve` | Local read-only dashboard over the diaries. Flags: `--host`, `--port` (default 8799), `--diaries`, `--data`, `--no-browser`. |
+| `tl synthesize` | Build journal from captured events. Sources: `--date YYYYMMDD`, `--events FILE`, `--replay` (default: all of `data/events/`). `--no-llm` = deterministic only. `--journal-dir DIR` to override output. |
+| `tl serve` | Local read-only dashboard over the journal. Flags: `--host`, `--port` (default 8799), `--journal-dir`, `--data`, `--no-browser`. |
 | `tl report` | Push the daily/weekly standup. Target: `--stdout` (default), `--slack` (`--slack-webhook URL`), `--github OWNER/REPO#N` (`--github-token TOKEN`). Scope: `--date YYYY-MM-DD`, `--weekly`. |
 | `tl pull --github` | Pull tracked GitHub repos' commits/PRs/CI into the thin-log. Flags: `--token`, `--watch`, `--interval SEC` (default 300). Only `projects.json` `git_remotes` are pulled. |
 | `tl relay` | Run the self-hostable multi-account relay (agent `/report` + `/sync` + `/events`). Flags: `--host`, `--port` (default 8788), `--store DIR`. Accounts from `relay.tokens`. |
@@ -613,7 +613,7 @@ throughlog/
 │   ├── privacy/             #   the gate: allowlist, redactors, egress check
 │   ├── sources/             #   focus, fs/git, clipboard, agent ingest, proc monitor, github_pull
 │   ├── categorize.py        #   Phase 1 (rules + LLM fallback)
-│   └── synthesize.py        #   Phase 2 (diary + exec summary)
+│   └── synthesize.py        #   Phase 2 (overview + exec summary)
 ├── integrations/            # drop-in agent hooks (Claude Code hook, JS client, contract)
 │   └── demo.py              #   `tl demo` — the built-in synthetic demo day
 ├── projects.json            # your project registry / allowlist (gitignored; create it, or `tl init`)
@@ -624,11 +624,11 @@ throughlog/
 ├── sim/scenarios/           # declarative end-to-end cases replayed through the real bus
 ├── data/                    # captured output (gitignored — nothing here is committed)
 │   ├── events/YYYYMMDD.jsonl #   the gated, thin event log
-│   ├── demo/                #   `tl demo` regenerates its store + diaries here
+│   ├── demo/                #   `tl demo` regenerates its store + journal here
 │   ├── agent_drop/          #   drop agent reports here
 │   ├── relay/               #   the relay's per-account store (when you run `tl relay`)
 │   └── daemon_status.json   #   capture heartbeat (alive/paused/counts)
-├── diaries/                 # the diaries + summaries you read
+├── journal/                 # the journal + summaries you read
 └── venv/                    # virtual env with the capture libraries
 ```
 
@@ -644,7 +644,7 @@ keys, and your project list never leave the machine via git.
 | `ModuleNotFoundError: psutil` (or watchdog/pyperclip/keyboard/pystray) when capturing | You're on the system Python. Use `.\venv\Scripts\python.exe -m throughlog.cli capture`, or `pip install -e .[capture]` into your active environment. |
 | "no allowlist roots — fs watching is off" | No project in `projects.json` has a `signals.paths` entry (and `privacy.allowlist_extra` is empty). Add at least one folder, or run `tl init`. |
 | "no API key resolved — running deterministic-only" | Expected without a key. Set `OPENROUTER_API_KEY` or `llm.api_key`, or just keep using `--no-llm`. The archive is still written. |
-| Diaries have an `archive.md` but no `diary.md` prose | The LLM was off/unreachable. Events are safe; re-run `synthesize` once the key/connection is sorted. |
+| Diaries have an `archive.md` but no `overview.md` prose | The LLM was off/unreachable. Events are safe; re-run `synthesize` once the key/connection is sorted. |
 | `tl serve` shows nothing | You haven't synthesized yet. Run `tl demo` (builds a demo day and serves it), or `synthesize` then `serve`. |
 | `tl report --slack/--github` says "no webhook/token" | Provide it via the flag, the env var (`$SAL_SLACK_WEBHOOK` / `$GITHUB_TOKEN`), or the `report.*` section of `config.json`. |
 | `tl pull` says "nothing to pull" | No tracked repo has a GitHub remote in `signals.git_remotes`. Add the remote (or run `tl init`, which fills it in). |
@@ -659,7 +659,7 @@ keys, and your project list never leave the machine via git.
 ```powershell
 python -m unittest discover -s tests -p "test_*.py"   # ~240 deterministic tests, expect OK
 python -m sim.simulator --all                          # 17 end-to-end scenarios through the real bus
-python -m throughlog.cli demo --no-serve                      # builds the demo day's diaries, no key
+python -m throughlog.cli demo --no-serve                      # builds the demo day's journal, no key
 python -m throughlog.privacy.gate --audit data/demo/20260624.jsonl   # prove the store would leak nothing (RESULT: CLEAN)
 ```
 
@@ -668,7 +668,7 @@ If you have an API key and want to confirm the LLM path end-to-end:
 ```powershell
 python -m throughlog.llm.client  --smoke   # connectivity
 python -m throughlog.categorize  --smoke   # Phase 1 on an ambiguous event
-python -m throughlog.synthesize  --smoke   # Phase 2 archive + diary + exec summary
+python -m throughlog.synthesize  --smoke   # Phase 2 archive + overview + exec summary
 ```
 
 ---
@@ -680,7 +680,7 @@ You tell it which folders and repos belong to which projects (`projects.json`, o
 hits disk — and again before anything leaves the machine. It records all day
 (`capture`/`tray`) and can also fold in your AI agents and pulled cloud work, keeping thin
 metadata about what happened — never file contents, never raw clipboard, never secrets.
-Then it writes that up into per-project diaries and an executive summary (`synthesize`)
+Then it writes that up into per-project journal and an executive summary (`synthesize`)
 that you read in a browser (`serve`), push to your team (`report`), and optionally sync
 across devices through a self-hostable relay (`relay`/`sync`) — using AI only to sort the
 ambiguous cases and phrase the prose, and even with the AI switched off you still get a

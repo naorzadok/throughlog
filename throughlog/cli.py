@@ -7,12 +7,12 @@
 
 Wires the finished pipeline end-to-end: read a persisted thin-log -> reconcile to
 real order -> Phase 1 categorize (deterministic signal stack, LLM only for genuine
-ambiguity) -> Phase 2 synthesize (diary/archive/daily/executive summary). Live
+ambiguity) -> Phase 2 synthesize (overview/archive/daily/executive summary). Live
 capture (the source adapters feeding the bus) is a separate concern; this command
 runs the analysis over events that have already been captured and gated.
 
 `--no-llm` (or a missing API key) degrades gracefully: the deterministic archive
-is still written and events are never dropped — the diary/exec prose is simply
+is still written and events are never dropped — the overview/exec prose is simply
 skipped or falls back to a concatenation of the per-project notes.
 """
 
@@ -78,12 +78,12 @@ def build_client(cfg: dict[str, Any], *, enable: bool):
 # Pipeline
 # --------------------------------------------------------------------------- #
 def run_pipeline(events: list[NormalizedEvent], projects: list[dict[str, Any]], *,
-                 diaries_dir: str | Path, client: Any, today: str | None = None,
+                 journal_dir: str | Path, client: Any, today: str | None = None,
                  options: synthesize.SynthesisOptions | None = None
                  ) -> synthesize.SynthesisRun:
     """Phase 1 (categorize, in place) then Phase 2 (synthesize)."""
     categorize_events(events, projects, client=client)
-    return synthesize.run(events, projects, diaries_dir=diaries_dir,
+    return synthesize.run(events, projects, journal_dir=journal_dir,
                           client=client, today=today, options=options)
 
 
@@ -119,29 +119,29 @@ def cmd_synthesize(args: argparse.Namespace) -> int:
         print(f"[tl] sources had no events: {[str(s) for s in sources]}")
         return 1
 
-    diaries_dir = Path(args.diaries) if args.diaries \
-        else BASE_DIR / cfg.get("paths", {}).get("diaries_dir", "diaries")
+    journal_dir = Path(args.journal_dir) if args.journal_dir \
+        else BASE_DIR / cfg.get("paths", {}).get("journal_dir", "journal")
     today = args.today or date.today().isoformat()
     client = build_client(cfg, enable=not args.no_llm)
 
     from dataclasses import replace
     options = synthesis_options_from(cfg)
-    if args.journal is not None:                # --journal / --no-journal overrides config
-        options = replace(options, daily_journal=args.journal)
+    if args.entries is not None:                # --entries / --no-entries overrides config
+        options = replace(options, write_entries=args.entries)
     if args.summary is not None:                # --summary off|weekly|monthly overrides config
         options = replace(options, summary_cadence=args.summary)
 
     print(f"[tl] {len(events)} events from {len(sources)} file(s) "
-          f"-> diaries: {diaries_dir}  (llm={'on' if client else 'off'}, "
-          f"journal={'on' if options.daily_journal else 'off'}/{options.journal_period}, "
+          f"-> journal: {journal_dir}  (llm={'on' if client else 'off'}, "
+          f"entries={'on' if options.write_entries else 'off'}/{options.entry_period}, "
           f"summary={options.summary_cadence})")
-    res = run_pipeline(events, projects, diaries_dir=diaries_dir,
+    res = run_pipeline(events, projects, journal_dir=journal_dir,
                        client=client, today=today, options=options)
 
     print(f"[tl] attribution: {_attribution_counts(events)}")
     for pd in res.projects:
-        flag = f"  [!] {pd.error or pd.journal_error}" if (pd.error or pd.journal_error) else ""
-        jcalls = f" + {pd.journal_calls} journal" if pd.journal_calls else ""
+        flag = f"  [!] {pd.error or pd.entry_error}" if (pd.error or pd.entry_error) else ""
+        jcalls = f" + {pd.entry_calls} entries" if pd.entry_calls else ""
         print(f"  {pd.project_id}: {pd.event_count} events, "
               f"{pd.llm_calls} llm call(s){jcalls}{flag}")
     if res.summaries:
@@ -155,27 +155,27 @@ def cmd_synthesize(args: argparse.Namespace) -> int:
 
 
 def cmd_summarize(args: argparse.Namespace) -> int:
-    """(Re)build one weekly/monthly cross-project summary from the diaries on disk.
+    """(Re)build one weekly/monthly cross-project summary from the journal on disk.
 
-    Reads the already-synthesized journal/archive sections (never the bus) and writes
-    diaries/summaries/<period>.md. The automatic path is `synthesize` with
+    Reads the already-synthesized entries/archive sections (never the bus) and writes
+    journal/summaries/<period>.md. The automatic path is `synthesize` with
     synthesis.summary_cadence on; this is the on-demand/backfill convenience."""
     cfg = load_config() if (BASE_DIR / "config.json").exists() else {}
-    diaries_dir = Path(args.diaries) if args.diaries \
-        else BASE_DIR / cfg.get("paths", {}).get("diaries_dir", "diaries")
+    journal_dir = Path(args.journal_dir) if args.journal_dir \
+        else BASE_DIR / cfg.get("paths", {}).get("journal_dir", "journal")
     period = "week" if args.week else "month"
     anchor = (args.date or date.today().strftime("%Y%m%d")).replace("-", "")
     period_key = synthesize._period_key(anchor, period)
     client = build_client(cfg, enable=not args.no_llm)
 
-    body, err = synthesize.summarize_period(diaries_dir, period_key, period, client=client)
+    body, err = synthesize.summarize_period(journal_dir, period_key, period, client=client)
     if not body:
-        print(f"[tl] no activity recorded for {period} {period_key} under {diaries_dir}.")
+        print(f"[tl] no activity recorded for {period} {period_key} under {journal_dir}.")
         return 0
-    synthesize._write_period_summary(diaries_dir, period_key, period, body)
+    synthesize._write_period_summary(journal_dir, period_key, period, body)
     if err:
         print(f"[tl] {err}")
-    print(f"[tl] wrote {diaries_dir / 'summaries' / (period_key + '.md')} "
+    print(f"[tl] wrote {journal_dir / 'summaries' / (period_key + '.md')} "
           f"(llm={'on' if client else 'off'}).")
     return 0
 
@@ -220,10 +220,10 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
-    """Serve the local dashboard over the already-synthesized diaries."""
+    """Serve the local dashboard over the already-synthesized journal."""
     from throughlog.server import serve, DEFAULT_PORT
     serve(host=args.host, port=args.port if args.port is not None else DEFAULT_PORT,
-          diaries_dir=args.diaries, data_dir_path=args.data,
+          journal_dir=args.journal_dir, data_dir_path=args.data,
           open_browser=not args.no_browser)
     return 0
 
@@ -317,7 +317,7 @@ def cmd_up(args: argparse.Namespace) -> int:
 
     controller = Controller(supervisor=(rt.sup if rt else None))
     try:
-        serve(host=host, port=port, diaries_dir=args.diaries, data_dir_path=args.data,
+        serve(host=host, port=port, journal_dir=args.journal_dir, data_dir_path=args.data,
               projects=projects, controller=controller,
               open_browser=not args.no_browser)
     finally:
@@ -357,7 +357,7 @@ def cmd_demo(args: argparse.Namespace) -> int:
     # Store under events/ (the shape the bus produces) so the dashboard's Timeline
     # and time-per-project chart discover the demo day via the normal events path.
     store = out / "events" / f"{demomod.DEMO_DAY}.jsonl"
-    diaries = out / "diaries"
+    journal = out / "journal"
 
     # The archive is append-only, so regenerate from a clean slate each run —
     # the demo must show exactly one day, however many times it is invoked.
@@ -365,25 +365,25 @@ def cmd_demo(args: argparse.Namespace) -> int:
         shutil.rmtree(out, ignore_errors=True)
     demomod.write_demo_thinlog(store)
     events = gather_events([store])
-    print(f"[tl] demo: {len(events)} synthetic events -> {diaries}  (no key needed)")
-    res = run_pipeline(events, demomod.DEMO_PROJECTS, diaries_dir=diaries,
+    print(f"[tl] demo: {len(events)} synthetic events -> {journal}  (no key needed)")
+    res = run_pipeline(events, demomod.DEMO_PROJECTS, journal_dir=journal,
                        client=None, today=demomod.DEMO_TODAY)
     # The keyless run can't produce the two LLM tiers; lay down the illustrative
-    # living-diary + detailed-journal fixtures so the tour shows all three tiers.
-    demomod.seed_demo_diaries(diaries)
+    # living-overview + detailed-entries fixtures so the tour shows all three tiers.
+    demomod.seed_demo_journal(journal)
     print(f"[tl] attribution: {_attribution_counts(events)}")
     for pd in res.projects:
         print(f"  {pd.project_id}: {pd.event_count} events")
 
     if args.no_serve:
-        print(f"[tl] demo diaries written to {diaries}. "
-              f"Run `tl serve --diaries {diaries}` to view, or omit --no-serve.")
+        print(f"[tl] demo journal written to {journal}. "
+              f"Run `tl serve --journal-dir {journal}` to view, or omit --no-serve.")
         return 0
 
     from throughlog.server import serve, DEFAULT_PORT
     registry = {p["id"]: p["name"] for p in demomod.DEMO_PROJECTS}
     serve(host=args.host, port=args.port if args.port is not None else DEFAULT_PORT,
-          diaries_dir=diaries, data_dir_path=out, registry=registry,
+          journal_dir=journal, data_dir_path=out, registry=registry,
           projects=demomod.DEMO_PROJECTS, open_browser=not args.no_browser)
     return 0
 
@@ -393,10 +393,10 @@ def cmd_report(args: argparse.Namespace) -> int:
     import os
     from throughlog import report as rpt
     cfg = load_config() if (BASE_DIR / "config.json").exists() else {}
-    diaries_dir = Path(args.diaries) if args.diaries \
-        else BASE_DIR / cfg.get("paths", {}).get("diaries_dir", "diaries")
+    journal_dir = Path(args.journal_dir) if args.journal_dir \
+        else BASE_DIR / cfg.get("paths", {}).get("journal_dir", "journal")
     rcfg = cfg.get("report", {}) or {}
-    inp = rpt.load_inputs(diaries_dir, date=args.date,
+    inp = rpt.load_inputs(journal_dir, date=args.date,
                           weekly=args.weekly, monthly=args.monthly)
     rollup = args.weekly or args.monthly       # both pick a multi-day rollup format
 
@@ -432,21 +432,21 @@ def cmd_report(args: argparse.Namespace) -> int:
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
-    """Answer a natural-language question grounded in the synthesized diaries."""
+    """Answer a natural-language question grounded in the synthesized journal."""
     from throughlog import ask as askmod
     cfg = load_config() if (BASE_DIR / "config.json").exists() else {}
-    diaries_dir = Path(args.diaries) if args.diaries \
-        else BASE_DIR / cfg.get("paths", {}).get("diaries_dir", "diaries")
+    journal_dir = Path(args.journal_dir) if args.journal_dir \
+        else BASE_DIR / cfg.get("paths", {}).get("journal_dir", "journal")
 
     question = " ".join(args.question).strip()
     if not question:
         print('[tl] ask needs a question, e.g.  tl ask "what did I ship on checkout?"')
         return 1
 
-    corpus = askmod.load_corpus(diaries_dir, project=args.project)
+    corpus = askmod.load_corpus(journal_dir, project=args.project)
     if not corpus:
-        where = f"{diaries_dir}" + (f" (project {args.project})" if args.project else "")
-        print(f"[tl] no diaries found in {where} — run `tl synthesize` or `tl demo` first.")
+        where = f"{journal_dir}" + (f" (project {args.project})" if args.project else "")
+        print(f"[tl] no journal found in {where} — run `tl synthesize` or `tl demo` first.")
         return 1
 
     client = build_client(cfg, enable=not args.no_llm)
@@ -616,20 +616,20 @@ def build_parser() -> argparse.ArgumentParser:
     src.add_argument("--date", metavar="YYYYMMDD", help="data/events/<date>.jsonl")
     src.add_argument("--replay", action="store_true",
                      help="the bundled real-day corpus in data/events_replay/")
-    syn.add_argument("--diaries", help="output directory (default: config paths.diaries_dir)")
+    syn.add_argument("--journal-dir", help="output directory (default: config paths.journal_dir)")
     syn.add_argument("--today", metavar="YYYY-MM-DD", help="date label for this run")
     syn.add_argument("--no-llm", action="store_true",
-                     help="deterministic only: archive without diary/exec prose")
-    syn.add_argument("--journal", action=argparse.BooleanOptionalAction, default=None,
-                     help="force the tier-2 detailed journal on/off "
-                          "(default: config synthesis.daily_journal)")
+                     help="deterministic only: archive without overview/exec prose")
+    syn.add_argument("--entries", action=argparse.BooleanOptionalAction, default=None,
+                     help="force the tier-2 detailed entries on/off "
+                          "(default: config synthesis.write_entries)")
     syn.add_argument("--summary", choices=("off", "weekly", "monthly"), default=None,
                      help="force the cross-project period summary cadence "
                           "(default: config synthesis.summary_cadence)")
     syn.set_defaults(func=cmd_synthesize)
 
     sm = sub.add_parser("summarize",
-                        help="(re)build one weekly/monthly cross-project summary from the diaries")
+                        help="(re)build one weekly/monthly cross-project summary from the journal")
     sm_when = sm.add_mutually_exclusive_group()
     sm_when.add_argument("--week", action="store_true",
                          help="summarize the ISO week containing --date (default: this week)")
@@ -637,7 +637,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="summarize the calendar month containing --date")
     sm.add_argument("--date", metavar="YYYYMMDD",
                     help="a date in the target period (default: today)")
-    sm.add_argument("--diaries", help="diaries directory (default: config paths.diaries_dir)")
+    sm.add_argument("--journal-dir", help="journal directory (default: config paths.journal_dir)")
     sm.add_argument("--no-llm", action="store_true",
                     help="deterministic only: concatenate the period's sections without prose")
     sm.set_defaults(func=cmd_summarize)
@@ -657,11 +657,11 @@ def build_parser() -> argparse.ArgumentParser:
                           "(structure + README only; needs a key)")
     ini.set_defaults(func=cmd_init)
 
-    sv = sub.add_parser("serve", help="serve the local dashboard over the diaries")
+    sv = sub.add_parser("serve", help="serve the local dashboard over the journal")
     sv.add_argument("--host", default="127.0.0.1", help="bind host (default 127.0.0.1)")
     sv.add_argument("--port", type=int, default=None, metavar="PORT",
                     help="bind port (default 8799)")
-    sv.add_argument("--diaries", help="diaries directory (default: config paths.diaries_dir)")
+    sv.add_argument("--journal-dir", help="journal directory (default: config paths.journal_dir)")
     sv.add_argument("--data", help="data directory (default: config paths.data_dir)")
     sv.add_argument("--no-browser", action="store_true",
                     help="do not auto-open a browser window")
@@ -673,7 +673,7 @@ def build_parser() -> argparse.ArgumentParser:
     dm.add_argument("--port", type=int, default=None, metavar="PORT",
                     help="bind port (default 8799)")
     dm.add_argument("--no-serve", action="store_true",
-                    help="synthesize the demo diaries but do not start the dashboard")
+                    help="synthesize the demo journal but do not start the dashboard")
     dm.add_argument("--no-browser", action="store_true",
                     help="start the dashboard but do not auto-open a browser")
     dm.set_defaults(func=cmd_demo)
@@ -683,7 +683,7 @@ def build_parser() -> argparse.ArgumentParser:
     up.add_argument("--host", default="127.0.0.1", help="bind host (default 127.0.0.1)")
     up.add_argument("--port", type=int, default=None, metavar="PORT",
                     help="bind port (default 8799)")
-    up.add_argument("--diaries", help="diaries directory (default: config paths.diaries_dir)")
+    up.add_argument("--journal-dir", help="journal directory (default: config paths.journal_dir)")
     up.add_argument("--data", help="data directory (default: config paths.data_dir)")
     up.add_argument("--no-capture", action="store_true",
                     help="dashboard only — do not start live capture")
@@ -707,7 +707,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="weekly rollup (prefers the synthesized weekly summary)")
     rp_roll.add_argument("--monthly", action="store_true",
                          help="monthly rollup (prefers the synthesized monthly summary)")
-    rp.add_argument("--diaries", help="diaries directory (default: config paths.diaries_dir)")
+    rp.add_argument("--journal-dir", help="journal directory (default: config paths.journal_dir)")
     rp.add_argument("--stdout", action="store_true", help="print to stdout (default)")
     rp.add_argument("--slack", action="store_true", help="post to a Slack incoming webhook")
     rp.add_argument("--slack-webhook", metavar="URL",
@@ -719,17 +719,17 @@ def build_parser() -> argparse.ArgumentParser:
     rp.set_defaults(func=cmd_report)
 
     ak = sub.add_parser("ask",
-                        help="ask a natural-language question about your diary")
+                        help="ask a natural-language question about your journal")
     ak.add_argument("question", nargs="+",
                     help='the question, e.g. "what did I ship on checkout this week?"')
-    ak.add_argument("--diaries", help="diaries directory (default: config paths.diaries_dir)")
-    ak.add_argument("--project", metavar="ID", help="restrict to one project's diary")
+    ak.add_argument("--journal-dir", help="journal directory (default: config paths.journal_dir)")
+    ak.add_argument("--project", metavar="ID", help="restrict to one project's journal")
     ak.add_argument("--top", type=int, default=6, metavar="N",
                     help="passages to retrieve (default 6)")
     ak.add_argument("--no-llm", action="store_true",
                     help="deterministic retrieval only — print the matching sections")
     ak.add_argument("--show-sources", action="store_true",
-                    help="print which diary sections were used")
+                    help="print which journal sections were used")
     ak.set_defaults(func=cmd_ask)
 
     pl = sub.add_parser("pull",
