@@ -1,0 +1,18 @@
+{
+  "name": "a8_bad_clock_offset_persists",
+  "description": "A8 — a spoofed report carries a non-numeric clock_offset_sec (\"abc\"). It must NOT crash ingestion, the bus, or downstream reconciliation: the bad offset is neutralized (coerced to 0.0) and the otherwise-valid, trusted report flows through the real bus and is persisted, still trusted. Events are never dropped or crashed by a downstream failure.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "agents": {
+    "now": "2026-06-24T12:00:00+03:00",
+    "trusted_identities": ["agent:claude-1"],
+    "future_tolerance_sec": 120,
+    "reports": [
+      {"type": "AGENT_REPORT", "source": {"kind": "agent", "adapter": "agent_ingest", "identity": "agent:claude-1", "session_id": "s1"}, "ts_wall": "2026-06-24T11:30:00+03:00", "clock_offset_sec": "abc", "payload": {"summary": "ran the nightly synthesis"}}
+    ]
+  },
+  "expect": {
+    "written": 1,
+    "trust_counts": {"validated": 1},
+    "persisted_present": ["ran the nightly synthesis"]
+  }
+}

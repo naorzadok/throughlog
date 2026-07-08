@@ -1,0 +1,19 @@
+{
+  "name": "m1_diff_oversized_binary",
+  "description": "Robustness — a binary diff is suppressed wholesale and an oversized diff is truncated. Both FILE_CHANGE events are still persisted (never dropped, never crash).",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "diff_policy": {"capture_diffs": true, "max_lines": 3},
+  "filesystem": {
+    "events": [
+      {"ts": "2026-06-21T16:00:00+03:00", "path": "C:/Users/dev/Desktop/projects/throughlog/assets/logo.png", "human_active": true,
+       "diff": "diff --git a/assets/logo.png b/assets/logo.png\nBinary files a/assets/logo.png and b/assets/logo.png differ\n"},
+      {"ts": "2026-06-21T16:05:00+03:00", "path": "C:/Users/dev/Desktop/projects/throughlog/throughlog/big.py", "human_active": true,
+       "diff": "diff --git a/throughlog/big.py b/throughlog/big.py\n--- a/throughlog/big.py\n+++ b/throughlog/big.py\n@@ -1 +1,6 @@\n+aaa\n+bbb\n+ccc\n+ddd\n+eee\n"}
+    ]
+  },
+  "expect": {
+    "written": 2,
+    "redactions_any": ["diff_binary_suppressed", "diff_truncated"],
+    "sidecar_present": ["[diff truncated]"]
+  }
+}

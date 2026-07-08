@@ -1,0 +1,20 @@
+{
+  "name": "o3_opaque_exe_attribution",
+  "description": "O3 — a self-compiled tool with a generic title and no UIA text. The title and UIA rungs yield nothing, so the intent ladder falls to rung 3 and attributes the session from the process working directory / command line (method proc_cmdline_cwd).",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "focus": {
+    "anchor_timeout_sec": 60,
+    "idle_threshold_sec": 600,
+    "kps_threshold": 0.3,
+    "periodic_flush_sec": 86400,
+    "ticks": [
+      {"ts": "2026-06-21T14:00:00+03:00", "window": {"title": "PlainScan", "process": "plainscan.exe"}, "keys": 4, "cmdline": "C:\\dev\\plainscan\\build\\plainscan.exe --scan ./samples", "cwd": "C:\\dev\\plainscan"},
+      {"ts": "2026-06-21T14:02:00+03:00", "window": {"title": "PlainScan", "process": "plainscan.exe"}, "keys": 4, "cmdline": "C:\\dev\\plainscan\\build\\plainscan.exe --scan ./samples", "cwd": "C:\\dev\\plainscan"}
+    ]
+  },
+  "expect": {
+    "written": 1,
+    "event_types": {"FOCUS_SESSION": 1},
+    "persisted_present": ["proc_cmdline_cwd", "plainscan"]
+  }
+}

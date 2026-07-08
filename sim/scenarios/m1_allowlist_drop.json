@@ -1,0 +1,17 @@
+{
+  "name": "m1_allowlist_drop",
+  "description": "C7/thin-log — only saves under a tracked-project dir persist; the rest of the all-drive firehose is dropped, and the home prefix is normalized away.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "events": [
+    {"type": "FILE_CHANGE", "source": {"kind": "fs", "adapter": "fs_git", "identity": "host:DEV-PC"}, "ts_wall": "2026-06-21T10:00:00+03:00", "payload": {"path": "C:/Users/dev/Desktop/projects/throughlog/throughlog/bus.py"}},
+    {"type": "FILE_CHANGE", "source": {"kind": "fs", "adapter": "fs_git"}, "ts_wall": "2026-06-21T10:00:01+03:00", "payload": {"path": "C:/Windows/System32/drivers/etc/hosts"}},
+    {"type": "FILE_CHANGE", "source": {"kind": "fs", "adapter": "fs_git"}, "ts_wall": "2026-06-21T10:00:02+03:00", "payload": {"path": "C:/Users/dev/AppData/Local/Temp/cache.tmp"}}
+  ],
+  "expect": {
+    "written": 1,
+    "dropped": {"not_in_allowlist": 2},
+    "persisted_present": ["bus.py"],
+    "persisted_absent": ["Users", "System32", "AppData"],
+    "redactions_any": ["path"]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "a6_agent_sdk_hook",
+  "description": "A6 — the agent SDK / Claude Code hook path. A report shaped exactly like throughlog.agent_sdk.build_report() (and the Claude Code hook) POSTs through the same ingest -> gate -> bus as any source. It lands as a validated AGENT_REPORT in the persisted log, carrying the agent identity and the prose that will appear in the diary. Proves the wedge's intake contract through the REAL bus, not a mock.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "agents": {
+    "now": "2026-06-21T10:00:05+03:00",
+    "reports": [
+      {
+        "schema_version": 2,
+        "type": "AGENT_REPORT",
+        "source": {"kind": "agent", "adapter": "claude-code", "identity": "agent:claude-code", "session_id": "sess-1"},
+        "ts_wall": "2026-06-21T10:00:00+03:00",
+        "payload": {
+          "summary": "Claude Code Edit: categorize.py — added the AGENT_REPORT signal branch",
+          "tool": "claude-code",
+          "repo": "C:/Users/dev/Desktop/projects/throughlog",
+          "project_hint": "throughlog",
+          "files": ["C:/Users/dev/Desktop/projects/throughlog/throughlog/categorize.py"]
+        }
+      }
+    ]
+  },
+  "expect": {
+    "written": 1,
+    "event_types": {"AGENT_REPORT": 1},
+    "trust_counts": {"validated": 1},
+    "persisted_present": ["Claude Code Edit: categorize.py", "agent:claude-code"]
+  }
+}

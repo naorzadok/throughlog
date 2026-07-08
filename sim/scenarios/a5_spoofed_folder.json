@@ -1,0 +1,20 @@
+{
+  "name": "a5_spoofed_folder",
+  "description": "A5 — a polluted report folder. A legit report is validated. A well-formed but spoofed report (unknown identity + far-future timestamp) is demoted to low_trust, never trusted blindly. A malformed entry (no valid type, bad source, non-object payload) is rejected and recorded only as an audit stub.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "agents": {
+    "now": "2026-06-21T12:00:00+03:00",
+    "trusted_identities": ["agent:claude-1"],
+    "future_tolerance_sec": 120,
+    "reports": [
+      {"type": "AGENT_REPORT", "source": {"kind": "agent", "adapter": "agent_ingest", "identity": "agent:claude-1", "session_id": "s1"}, "ts_wall": "2026-06-21T11:30:00+03:00", "payload": {"summary": "ran integration tests"}},
+      {"type": "AGENT_REPORT", "source": {"kind": "agent", "adapter": "agent_ingest", "identity": "agent:evil", "session_id": "x"}, "ts_wall": "2027-01-01T00:00:00+03:00", "payload": {"summary": "trust me, I did everything"}},
+      {"source": {"kind": "banana"}, "payload": "not even an object"}
+    ]
+  },
+  "expect": {
+    "written": 3,
+    "trust_counts": {"validated": 1, "low_trust": 1, "rejected": 1},
+    "persisted_present": ["ran integration tests", "unknown_identity", "future_timestamp"]
+  }
+}

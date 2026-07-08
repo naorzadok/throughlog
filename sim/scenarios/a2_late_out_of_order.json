@@ -1,0 +1,14 @@
+{
+  "name": "a2_late_out_of_order",
+  "description": "A2 — a cloud agent report for the morning lands in the afternoon, after a later event was already persisted. Reconciliation orders the timeline by real ts_wall (corrected for clock offset), not by arrival, so the late report takes its correct morning position.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "events": [
+    {"type": "FOCUS_SESSION", "source": {"kind": "os", "adapter": "os_focus"}, "ts_wall": "2026-06-21T14:00:00+03:00", "payload": {"tag": "afternoon", "anchor": "Editor"}},
+    {"type": "AGENT_REPORT", "source": {"kind": "agent", "adapter": "agent_ingest", "identity": "agent:claude-1"}, "ts_wall": "2026-06-21T10:00:00+03:00", "recv_ts": "2026-06-21T14:05:00+03:00", "payload": {"tag": "morning_late", "summary": "refactored the parser module"}},
+    {"type": "FOCUS_SESSION", "source": {"kind": "os", "adapter": "os_focus"}, "ts_wall": "2026-06-21T16:00:00+03:00", "payload": {"tag": "evening", "anchor": "Editor"}}
+  ],
+  "expect": {
+    "written": 3,
+    "timeline_order": {"key": "tag", "values": ["morning_late", "afternoon", "evening"]}
+  }
+}

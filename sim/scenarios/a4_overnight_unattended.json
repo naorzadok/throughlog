@@ -1,0 +1,17 @@
+{
+  "name": "a4_overnight_unattended",
+  "description": "A4 — an overnight run finishes at 03:14 with no human present. The agent's report is ingested, validated and timestamped at its real ts_wall, so it lands on the correct day ready for the next day's diary.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "agents": {
+    "now": "2026-06-21T09:00:00+03:00",
+    "trusted_identities": ["agent:nightly"],
+    "reports": [
+      {"type": "AGENT_REPORT", "source": {"kind": "agent", "adapter": "agent_ingest", "identity": "agent:nightly", "session_id": "night-1"}, "ts_wall": "2026-06-21T03:14:00+03:00", "payload": {"summary": "overnight regression suite: 412 passed, 3 failed", "unattended": true}}
+    ]
+  },
+  "expect": {
+    "written": 1,
+    "trust_counts": {"validated": 1},
+    "persisted_present": ["overnight regression", "agent:nightly"]
+  }
+}

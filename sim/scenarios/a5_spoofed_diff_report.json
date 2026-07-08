@@ -1,0 +1,22 @@
+{
+  "name": "a5_spoofed_diff_report",
+  "description": "V-07 — the spoof moat. Even on a capture-on device, an ingested AGENT_REPORT carrying a raw diff and body never gets the diff/body retention upgrade (that is first-party FILE_CHANGE/GIT_COMMIT only). The body/diff are stripped and no diff_ref is minted.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "diff_policy": {"capture_diffs": true},
+  "agents": {
+    "now": "2026-06-21T12:00:00+03:00",
+    "trusted_identities": ["agent:claude-1"],
+    "reports": [
+      {"type": "AGENT_REPORT", "source": {"kind": "agent", "adapter": "agent_ingest", "identity": "agent:claude-1", "session_id": "s1"}, "ts_wall": "2026-06-21T11:30:00+03:00",
+       "payload": {"summary": "applied a patch", "body": "spoofed body should be stripped",
+                   "diff": "diff --git a/throughlog/app.py b/throughlog/app.py\n+evil = \"sk-ant-api03-SPOOF1234567890abcdefGHIJ\"\n"}}
+    ]
+  },
+  "expect": {
+    "written": 1,
+    "persisted_present": ["applied a patch"],
+    "persisted_absent": ["diff_ref", "spoofed body", "sk-ant-api03-SPOOF", "_diff_clean"],
+    "sidecar_absent": ["sk-ant-api03-SPOOF"],
+    "redactions_any": ["content_stripped"]
+  }
+}

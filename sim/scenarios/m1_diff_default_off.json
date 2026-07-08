@@ -1,0 +1,17 @@
+{
+  "name": "m1_diff_default_off",
+  "description": "Diff capture is OFF by default: a FILE_CHANGE carrying an inline diff has the diff stripped before persistence (content_stripped), byte-identical to pre-feature behavior. No sidecar is written and no diff_ref appears.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "filesystem": {
+    "events": [
+      {"ts": "2026-06-21T16:00:00+03:00", "path": "C:/Users/dev/Desktop/projects/throughlog/throughlog/app.py", "human_active": true,
+       "diff": "diff --git a/throughlog/app.py b/throughlog/app.py\n--- a/throughlog/app.py\n+++ b/throughlog/app.py\n@@ -1 +1,2 @@\n import os\n+x = 1\n"}
+    ]
+  },
+  "expect": {
+    "written": 1,
+    "persisted_absent": ["x = 1", "diff_ref", "_diff_clean"],
+    "sidecar_absent": ["x = 1"],
+    "redactions_any": ["content_stripped"]
+  }
+}

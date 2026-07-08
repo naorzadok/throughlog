@@ -1,0 +1,58 @@
+{
+  "llm": {
+    "provider": "openrouter",
+    "base_url": "https://openrouter.ai/api/v1",
+    "model": "openai/gpt-oss-120b:free",
+    "model_fallback": "qwen/qwen3-next-80b-a3b-instruct:free",
+    "reasoning_effort": "",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "api_key": "",
+    "timeout_sec": 600,
+    "max_retries": 3,
+    "local_endpoint": "http://localhost:11434",
+    "local_model": "llama3.1:8b"
+  },
+  "privacy": {
+    "allowlist_extra": [],
+    "capture_diffs": false,
+    "diff_max_lines": 400,
+    "diff_max_bytes": 65536,
+    "ignore_globs": [],
+    "clipboard_preview": false,
+    "clipboard_preview_chars": 256
+  },
+  "synthesis": {
+    "daily_journal": true,
+    "journal_max_tokens": 1500,
+    "journal_period": "month",
+    "summary_cadence": "weekly"
+  },
+  "init": {
+    "llm_enrich": false
+  },
+  "paths": {
+    "data_dir": "data",
+    "diaries_dir": "diaries"
+  },
+  "schedule": {
+    "synthesize_at": ""
+  },
+  "report": {
+    "slack_webhook": "",
+    "github_token": ""
+  },
+  "integrations": {
+    "github": {
+      "token": ""
+    }
+  },
+  "relay": {
+    "tokens": {
+      "CHANGE-ME-secret-token": "my-account"
+    }
+  },
+  "sync": {
+    "endpoint": "",
+    "token": ""
+  }
+}

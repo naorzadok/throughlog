@@ -1,0 +1,35 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# PyInstaller / packaging output
+build/
+dist/
+*.spec.bak
+*.egg-info/
+
+# Tooling output (regenerable analysis / agent artifacts)
+graphify-out/
+.claude/
+verification.md
+
+# Logs and runtime data
+data/
+diaries/
+*.log
+*.jsonl
+*.txt
+
+# Sensitive / user-specific (signal paths define the privacy allowlist).
+# Templates ship as *.example.json; copy one or run `tl init` to create the real file.
+config.json
+projects.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,19 @@
+{
+  "name": "a3_concurrent_agents",
+  "description": "A3 — two agents work at the same time. Each report keeps its own source.identity and session_id, so the streams stay distinct and are never merged.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "agents": {
+    "now": "2026-06-21T18:00:00+03:00",
+    "trusted_identities": ["agent:claude-1", "agent:claude-2"],
+    "reports": [
+      {"type": "AGENT_REPORT", "source": {"kind": "agent", "adapter": "agent_ingest", "identity": "agent:claude-1", "session_id": "s-a1"}, "ts_wall": "2026-06-21T17:00:00+03:00", "payload": {"summary": "agent one built the parser"}},
+      {"type": "AGENT_REPORT", "source": {"kind": "agent", "adapter": "agent_ingest", "identity": "agent:claude-2", "session_id": "s-a2"}, "ts_wall": "2026-06-21T17:01:00+03:00", "payload": {"summary": "agent two ran the test suite"}},
+      {"type": "AGENT_REPORT", "source": {"kind": "agent", "adapter": "agent_ingest", "identity": "agent:claude-1", "session_id": "s-a1"}, "ts_wall": "2026-06-21T17:05:00+03:00", "payload": {"summary": "agent one wrote the docs"}}
+    ]
+  },
+  "expect": {
+    "written": 3,
+    "trust_counts": {"validated": 3},
+    "persisted_present": ["agent:claude-1", "agent:claude-2", "s-a1", "s-a2"]
+  }
+}

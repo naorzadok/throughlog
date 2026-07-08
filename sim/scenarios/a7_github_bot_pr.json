@@ -1,0 +1,38 @@
+{
+  "name": "a7_github_bot_pr",
+  "description": "A7 (M15) — account pull source. Captured GitHub API payloads (a bot-authored PR + a human commit) replay through the REAL transformers and bus. A cloud coding agent that opened a PR lands as an AGENT_REPORT with source.kind=agent and identity agent:<login> ('what my agents did in the cloud'); a teammate's commit lands as a remote AGENT_REPORT (kind=remote, identity github:<login>). Both carry the repo remote so they attribute to the project, and the prose appears in the diary.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "github": {
+    "repo_remote": "github.com/acme/acme-api",
+    "commits": [
+      {
+        "sha": "abc1234def5678",
+        "commit": {"author": {"name": "Alice Dev", "date": "2026-06-21T08:00:00+00:00"},
+                   "message": "Fix the parser edge case\n\nlong body ignored"},
+        "author": {"login": "alice", "type": "User"}
+      }
+    ],
+    "pulls": [
+      {
+        "number": 7,
+        "title": "Add retry with backoff to the fetcher",
+        "state": "open",
+        "user": {"login": "claude[bot]", "type": "Bot"},
+        "created_at": "2026-06-21T09:00:00+00:00",
+        "updated_at": "2026-06-21T09:05:00+00:00",
+        "html_url": "https://github.com/acme/acme-api/pull/7"
+      }
+    ]
+  },
+  "expect": {
+    "written": 2,
+    "event_types": {"AGENT_REPORT": 2},
+    "trust_counts": {"validated": 2},
+    "persisted_present": [
+      "opened PR #7: Add retry with backoff to the fetcher",
+      "agent:claude[bot]",
+      "commit abc1234",
+      "github:alice"
+    ]
+  }
+}

@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "throughlog"
+version = "2.0.0"
+description = "A private, local work journal that records your day — and what your AI agents did — as per-project diaries and an executive summary."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Naor Zadok" }]
+keywords = ["work-journal", "developer-diary", "ai-agents", "privacy", "local-first", "llm"]
+
+# The core pipeline (schema, privacy gate, timeline, categorize, synthesize, the
+# LLM client, and the simulator) is pure standard library — no runtime deps.
+dependencies = []
+
+[project.optional-dependencies]
+# Live OS capture adapters lazily import these; they are NOT needed to run the
+# analysis pipeline (categorize + synthesize) over already-captured events.
+capture = [
+    "psutil",
+    "watchdog",
+    "uiautomation",
+    "keyboard",
+    "pyperclip",
+    "pystray",
+    "Pillow",
+]
+
+[project.scripts]
+tl = "throughlog.cli:main"
+
+[tool.setuptools]
+packages = ["throughlog", "throughlog.privacy", "throughlog.sources", "throughlog.intent", "throughlog.llm", "sim"]

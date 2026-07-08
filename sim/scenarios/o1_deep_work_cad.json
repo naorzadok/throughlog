@@ -1,0 +1,25 @@
+{
+  "name": "o1_deep_work_cad",
+  "description": "O1 — CAD focused ~3h with almost no keystrokes but heavy mouse activity and a periodic save cadence. Classified as ONE DEEP_WORK session (opaque-app production), never idle and never mislabeled READING.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "focus": {
+    "anchor_timeout_sec": 60,
+    "idle_threshold_sec": 600,
+    "kps_threshold": 0.3,
+    "deep_work_min_sec": 300,
+    "mouse_active_min": 30,
+    "periodic_flush_sec": 86400,
+    "ticks": [
+      {"ts": "2026-06-21T10:00:00+03:00", "window": {"title": "Robot Arm v3 - Autodesk Fusion 360", "process": "Fusion360.exe"}, "idle_seconds": 0, "keys": 0, "mouse": 40},
+      {"ts": "2026-06-21T10:45:00+03:00", "window": {"title": "Robot Arm v3 - Autodesk Fusion 360", "process": "Fusion360.exe"}, "idle_seconds": 30, "keys": 1, "mouse": 55, "saves": 1},
+      {"ts": "2026-06-21T11:30:00+03:00", "window": {"title": "Robot Arm v3 - Autodesk Fusion 360", "process": "Fusion360.exe"}, "idle_seconds": 20, "keys": 0, "mouse": 60, "saves": 1},
+      {"ts": "2026-06-21T12:15:00+03:00", "window": {"title": "Robot Arm v3 - Autodesk Fusion 360", "process": "Fusion360.exe"}, "idle_seconds": 25, "keys": 2, "mouse": 50},
+      {"ts": "2026-06-21T13:00:00+03:00", "window": {"title": "Robot Arm v3 - Autodesk Fusion 360", "process": "Fusion360.exe"}, "idle_seconds": 15, "keys": 0, "mouse": 45, "saves": 1}
+    ]
+  },
+  "expect": {
+    "written": 1,
+    "event_types": {"DEEP_WORK": 1},
+    "persisted_present": ["DEEP_WORK", "Autodesk Fusion 360", "Robot Arm v3"]
+  }
+}

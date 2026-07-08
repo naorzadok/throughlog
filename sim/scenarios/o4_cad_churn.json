@@ -1,0 +1,26 @@
+{
+  "name": "o4_cad_churn",
+  "description": "O4 — a CAD save fires a flurry: a ~$ lock file, an 8-char hex scratch file, several write notifications for the real document, and a .bak backup. The churn filter drops every noise path and coalesces the repeated writes, yielding exactly ONE FILE_CHANGE per real save. The gate normalizes the home path.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "filesystem": {
+    "coalesce_sec": 2,
+    "events": [
+      {"ts": "2026-06-21T15:00:00+03:00", "path": "C:/Users/dev/Desktop/projects/throughlog/cad/~$Assembly.sldasm"},
+      {"ts": "2026-06-21T15:00:00+03:00", "path": "C:/Users/dev/Desktop/projects/throughlog/cad/3F2A1B9C"},
+      {"ts": "2026-06-21T15:00:01+03:00", "path": "C:/Users/dev/Desktop/projects/throughlog/cad/Assembly.sldasm", "human_active": true},
+      {"ts": "2026-06-21T15:00:01+03:00", "path": "C:/Users/dev/Desktop/projects/throughlog/cad/Assembly.sldasm", "human_active": true},
+      {"ts": "2026-06-21T15:00:02+03:00", "path": "C:/Users/dev/Desktop/projects/throughlog/cad/Assembly.sldasm.bak"},
+      {"ts": "2026-06-21T15:05:00+03:00", "path": "C:/Users/dev/Desktop/projects/throughlog/cad/~$Assembly.sldasm"},
+      {"ts": "2026-06-21T15:05:01+03:00", "path": "C:/Users/dev/Desktop/projects/throughlog/cad/Assembly.sldasm", "human_active": true},
+      {"ts": "2026-06-21T15:05:01+03:00", "path": "C:/Users/dev/Desktop/projects/throughlog/cad/Assembly.sldasm", "human_active": true},
+      {"ts": "2026-06-21T15:05:02+03:00", "path": "C:/Users/dev/Desktop/projects/throughlog/cad/A1B2C3D4"}
+    ]
+  },
+  "expect": {
+    "written": 2,
+    "event_types": {"FILE_CHANGE": 2},
+    "persisted_present": ["Assembly.sldasm"],
+    "persisted_absent": ["Users", "~$", "3F2A1B9C", "A1B2C3D4", ".bak"],
+    "redactions_any": ["path"]
+  }
+}

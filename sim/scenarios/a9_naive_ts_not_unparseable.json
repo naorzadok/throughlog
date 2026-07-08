@@ -1,0 +1,18 @@
+{
+  "name": "a9_naive_ts_not_unparseable",
+  "description": "F-07 regression — a well-formed agent report whose ts_wall is a VALID but tz-naive ISO string (the shape the demo/replay corpora use) must NOT be mislabeled 'unparseable_ts_wall' when compared against a tz-aware now. With no anomalies it stays 'validated'; the naive/aware mismatch is aligned before the far-future check rather than raising TypeError.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "agents": {
+    "now": "2026-06-24T10:00:00+03:00",
+    "future_tolerance_sec": 120,
+    "reports": [
+      {"type": "AGENT_REPORT", "source": {"kind": "agent", "adapter": "agent_ingest", "identity": "agent:claude-1", "session_id": "s1"}, "ts_wall": "2026-06-24 09:05:00", "payload": {"summary": "ran the nightly synthesis"}}
+    ]
+  },
+  "expect": {
+    "written": 1,
+    "trust_counts": {"validated": 1},
+    "persisted_present": ["ran the nightly synthesis"],
+    "persisted_absent": ["unparseable_ts_wall", "future_timestamp", "trust_reasons"]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "m1_diff_env_tracked_suppressed",
+  "description": "Feature B layer 2 — even with capture on, a tracked .env file's diff is suppressed by the hardcoded secrets denylist (git would happily diff a committed .env). The event itself is still persisted; only the diff is dropped.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "diff_policy": {"capture_diffs": true},
+  "filesystem": {
+    "events": [
+      {"ts": "2026-06-21T16:00:00+03:00", "path": "C:/Users/dev/Desktop/projects/throughlog/.env", "human_active": true,
+       "diff": "diff --git a/.env b/.env\n--- a/.env\n+++ b/.env\n@@ -1 +1 @@\n+OPENAI_KEY=sk-ant-api03-ZZZZZZ1234567890abcdefGHIJ\n"}
+    ]
+  },
+  "expect": {
+    "written": 1,
+    "persisted_absent": ["diff_ref", "sk-ant-api03-ZZZZZZ"],
+    "sidecar_absent": ["sk-ant-api03-ZZZZZZ"],
+    "redactions_any": ["diff_suppressed_ignored"]
+  }
+}

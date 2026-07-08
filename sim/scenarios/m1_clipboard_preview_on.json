@@ -1,0 +1,16 @@
+{
+  "name": "m1_clipboard_preview_on",
+  "description": "Feature D — with clipboard_preview on, a non-credential clipboard capture keeps a capped, scrubbed preview alongside the typed summary. Raw content is still never stored.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "diff_policy": {"clipboard_preview": true, "clipboard_preview_chars": 40},
+  "clipboard": {
+    "captures": [
+      {"text": "remember to refactor the checkout retry loop tomorrow", "ts": "2026-06-21T16:00:00+03:00"}
+    ]
+  },
+  "expect": {
+    "written": 1,
+    "persisted_present": ["preview", "refactor the checkout"],
+    "redactions_any": ["clipboard_preview"]
+  }
+}

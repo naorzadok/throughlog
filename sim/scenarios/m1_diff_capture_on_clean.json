@@ -1,0 +1,19 @@
+{
+  "name": "m1_diff_capture_on_clean",
+  "description": "With capture_diffs on, a clean FILE_CHANGE diff is scrubbed (no-op here) and written to the diff sidecar; the thin-log carries only a diff_ref, never the diff body.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "diff_policy": {"capture_diffs": true},
+  "filesystem": {
+    "events": [
+      {"ts": "2026-06-21T16:00:00+03:00", "path": "C:/Users/dev/Desktop/projects/throughlog/throughlog/app.py", "human_active": true,
+       "diff": "diff --git a/throughlog/app.py b/throughlog/app.py\n--- a/throughlog/app.py\n+++ b/throughlog/app.py\n@@ -1 +1,2 @@\n import os\n+greet = 1\n"}
+    ]
+  },
+  "expect": {
+    "written": 1,
+    "persisted_present": ["diff_ref"],
+    "persisted_absent": ["greet = 1", "_diff_clean"],
+    "sidecar_present": ["greet = 1"],
+    "redactions_any": ["diff_captured"]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "m1_diff_ignore_glob",
+  "description": "Feature B layer 3 — a user ignore glob (*.sql) suppresses the diff of a matching file at the gate, even with capture on. The FILE_CHANGE survives; only the diff is dropped.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "diff_policy": {"capture_diffs": true, "ignore_globs": ["*.sql"]},
+  "filesystem": {
+    "events": [
+      {"ts": "2026-06-21T16:00:00+03:00", "path": "C:/Users/dev/Desktop/projects/throughlog/db/schema.sql", "human_active": true,
+       "diff": "diff --git a/db/schema.sql b/db/schema.sql\n--- a/db/schema.sql\n+++ b/db/schema.sql\n@@ -1 +1,2 @@\n CREATE TABLE t;\n+ALTER TABLE t ADD COLUMN secretcol;\n"}
+    ]
+  },
+  "expect": {
+    "written": 1,
+    "persisted_absent": ["diff_ref", "secretcol"],
+    "sidecar_absent": ["secretcol"],
+    "redactions_any": ["diff_suppressed_ignored"]
+  }
+}

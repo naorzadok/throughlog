@@ -1,0 +1,37 @@
+{
+  "_comment": "Copy this to projects.json and edit, or run `tl init <root>` to auto-discover git repos. signals.* drive BOTH categorization and the privacy allowlist (you only observe directories belonging to a tracked project), so this file is security-relevant — not just a hint. Try it first with `tl demo` (needs no config at all).",
+  "projects": [
+    {
+      "id": "acme-checkout",
+      "name": "Acme Checkout",
+      "status": "active",
+      "description": "Example web service — replace with your own project.",
+      "signals": {
+        "paths": ["~/projects/acme-checkout"],
+        "git_remotes": ["github.com/acme/checkout"],
+        "jira_prefixes": ["CHK"],
+        "keywords": ["checkout", "coupon", "payment", "cart", "currency"],
+        "apps": ["Code.exe", "chrome.exe"],
+        "domains": ["github.com/acme/checkout"],
+        "window_patterns": [".*[Cc]heckout.*"],
+        "ignore_globs": ["*.sql", "fixtures/**"]
+      }
+    },
+    {
+      "id": "pricing-model",
+      "name": "Pricing Model",
+      "status": "active",
+      "description": "Example data/ML project — replace with your own project.",
+      "signals": {
+        "paths": ["~/projects/pricing-model"],
+        "git_remotes": ["github.com/acme/pricing-model"],
+        "jira_prefixes": ["PRI"],
+        "keywords": ["pricing", "model", "feature", "training", "holdout"],
+        "apps": ["Code.exe", "python.exe"],
+        "domains": ["github.com/acme/pricing-model"],
+        "window_patterns": [".*[Pp]ricing.*"],
+        "journal_extract": ["hyperparameters and the values tried", "metric/benchmark numbers", "dataset or feature changes"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "c3_reading_vs_afk",
+  "description": "C3 — reading a paper (low keyboard input, frequent scroll => idle stays well below threshold) is captured as an ACTIVE reading session, not dropped and not idle. Only when the user truly walks away (idle >= threshold) does an IDLE_START fire and the session end at the moment input actually stopped.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "focus": {
+    "anchor_timeout_sec": 60,
+    "idle_threshold_sec": 600,
+    "kps_threshold": 0.3,
+    "ticks": [
+      {"ts": "2026-06-21T09:00:00+03:00", "window": {"title": "Attention Is All You Need.pdf - SumatraPDF", "process": "SumatraPDF.exe"}, "idle_seconds": 0, "keys": 0},
+      {"ts": "2026-06-21T09:01:00+03:00", "window": {"title": "Attention Is All You Need.pdf - SumatraPDF", "process": "SumatraPDF.exe"}, "idle_seconds": 8, "keys": 0},
+      {"ts": "2026-06-21T09:03:00+03:00", "window": {"title": "Attention Is All You Need.pdf - SumatraPDF", "process": "SumatraPDF.exe"}, "idle_seconds": 15, "keys": 1},
+      {"ts": "2026-06-21T09:05:00+03:00", "window": {"title": "Attention Is All You Need.pdf - SumatraPDF", "process": "SumatraPDF.exe"}, "idle_seconds": 20, "keys": 0},
+      {"ts": "2026-06-21T09:15:00+03:00", "window": {"title": "Attention Is All You Need.pdf - SumatraPDF", "process": "SumatraPDF.exe"}, "idle_seconds": 620, "keys": 0}
+    ]
+  },
+  "expect": {
+    "written": 2,
+    "event_types": {"FOCUS_SESSION": 1, "IDLE_START": 1},
+    "persisted_present": ["READING", "Attention Is All You Need.pdf", "SumatraPDF"]
+  }
+}

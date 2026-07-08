@@ -1,0 +1,27 @@
+{
+  "name": "c2_rapid_switch_debounce",
+  "description": "C2 — rapid app-switching: windows held for less than the settle timer become satellites of the current anchor, NOT new sessions. A window held past the timer genuinely promotes. Editor anchor + 3 quick switches => 1 session; a sustained switch to Zoom => a 2nd session. Exactly two FOCUS_SESSIONs prove the debounce.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "focus": {
+    "anchor_timeout_sec": 60,
+    "idle_threshold_sec": 600,
+    "kps_threshold": 0.3,
+    "ticks": [
+      {"ts": "2026-06-21T09:00:00+03:00", "window": {"title": "capture_daemon.py - throughlog - Visual Studio Code", "process": "Code.exe"}, "keys": 50},
+      {"ts": "2026-06-21T09:00:10+03:00", "window": {"title": "general - Slack", "process": "slack.exe"}, "keys": 0},
+      {"ts": "2026-06-21T09:00:20+03:00", "window": {"title": "Transformers — Wikipedia - Google Chrome", "process": "chrome.exe"}, "keys": 0},
+      {"ts": "2026-06-21T09:00:30+03:00", "window": {"title": "Windows PowerShell", "process": "WindowsTerminal.exe"}, "keys": 0},
+      {"ts": "2026-06-21T09:00:40+03:00", "window": {"title": "capture_daemon.py - throughlog - Visual Studio Code", "process": "Code.exe"}, "keys": 30},
+      {"ts": "2026-06-21T09:01:00+03:00", "window": {"title": "capture_daemon.py - throughlog - Visual Studio Code", "process": "Code.exe"}, "keys": 40},
+      {"ts": "2026-06-21T09:02:00+03:00", "window": {"title": "Zoom Meeting", "process": "Zoom.exe"}, "keys": 0},
+      {"ts": "2026-06-21T09:02:30+03:00", "window": {"title": "Zoom Meeting", "process": "Zoom.exe"}, "keys": 0},
+      {"ts": "2026-06-21T09:03:05+03:00", "window": {"title": "Zoom Meeting", "process": "Zoom.exe"}, "keys": 0},
+      {"ts": "2026-06-21T09:10:00+03:00", "window": {"title": "Zoom Meeting", "process": "Zoom.exe"}, "keys": 0}
+    ]
+  },
+  "expect": {
+    "written": 2,
+    "event_types": {"FOCUS_SESSION": 2},
+    "persisted_present": ["Visual Studio Code", "Zoom Meeting", "general - Slack", "Windows PowerShell"]
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "c6_c7_intent_bridges",
+  "description": "C6 — a meaningful narration note becomes the session's intent (method narration) instead of a mechanical keystroke guess; a retroactive 'since 1pm' note is parsed; a terse note is kept but flagged not-meaningful and never fabricates intent. C7 — clipboard is typed (url -> host only) and credential-shaped clipboard is dropped entirely.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "focus": {
+    "anchor_timeout_sec": 60,
+    "idle_threshold_sec": 600,
+    "kps_threshold": 0.3,
+    "periodic_flush_sec": 86400,
+    "ticks": [
+      {"ts": "2026-06-21T13:00:00+03:00", "window": {"title": "Windows PowerShell", "process": "WindowsTerminal.exe"}, "keys": 5, "narration": "debugging the OAuth token refresh loop in the auth client"},
+      {"ts": "2026-06-21T13:05:00+03:00", "window": {"title": "Windows PowerShell", "process": "WindowsTerminal.exe"}, "keys": 5}
+    ]
+  },
+  "narration": {
+    "notes": [
+      {"ts": "2026-06-21T13:30:00+03:00", "text": "wrapping up the redactor unit tests since 1pm"},
+      {"ts": "2026-06-21T13:35:00+03:00", "text": "hmm ok"}
+    ]
+  },
+  "clipboard": {
+    "captures": [
+      {"ts": "2026-06-21T13:40:00+03:00", "text": "Check https://runrepeat.com/best-training-shoes for the comparison"},
+      {"ts": "2026-06-21T13:41:00+03:00", "text": "sk-ant-api03-SECRETKEY1234567890abcdefXYZ"}
+    ]
+  },
+  "expect": {
+    "written": 4,
+    "event_types": {"FOCUS_SESSION": 1, "NARRATION": 2, "CLIPBOARD": 1},
+    "dropped": {"clipboard_credential": 1},
+    "persisted_present": ["narration", "OAuth token refresh", "retroactive_since", "redactor unit tests", "url", "runrepeat.com"],
+    "persisted_absent": ["best-training-shoes", "sk-ant-api03"]
+  }
+}

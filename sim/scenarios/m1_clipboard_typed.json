@@ -1,0 +1,15 @@
+{
+  "name": "m1_clipboard_typed",
+  "description": "C7 — clipboard is typed/summarized, never stored raw; credential-shaped clipboard is dropped entirely.",
+  "allowlist": ["C:/Users/dev/Desktop/projects/throughlog"],
+  "events": [
+    {"type": "CLIPBOARD", "source": {"kind": "intent", "adapter": "intent_bridge"}, "ts_wall": "2026-06-21T12:00:00+03:00", "payload": {"content": "Check https://runrepeat.com/best-training-shoes for the comparison table"}},
+    {"type": "CLIPBOARD", "source": {"kind": "intent", "adapter": "intent_bridge"}, "ts_wall": "2026-06-21T12:01:00+03:00", "payload": {"content": "sk-ant-api03-SECRETKEY1234567890abcdefXYZ"}}
+  ],
+  "expect": {
+    "written": 1,
+    "dropped": {"clipboard_credential": 1},
+    "persisted_present": ["url", "runrepeat.com"],
+    "persisted_absent": ["best-training-shoes", "sk-ant-api03-SECRETKEY"]
+  }
+}
