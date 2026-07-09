@@ -426,7 +426,7 @@ python -m throughlog.cli report --github owner/repo#42 --github-token ghp_xxx
 ```
 
 Where it reads each secret (in order): the `--slack-webhook` / `--github-token` flag, then
-the `$SAL_SLACK_WEBHOOK` / `$GITHUB_TOKEN` environment variable, then
+the `$TL_SLACK_WEBHOOK` / `$GITHUB_TOKEN` environment variable, then
 `report.slack_webhook` / `report.github_token` in `config.json`.
 
 ---
@@ -482,11 +482,22 @@ capture` is running (the supervisor watches that folder). A minimal report
 **(b) Use the Agent SDK / drop-in hooks** (`throughlog/agent_sdk.py`, `integrations/`). The SDK's
 `AgentReporter` builds the same report and POSTs it to a `/report` endpoint (default
 `http://127.0.0.1:8787/report`); if no listener is up it **falls back to writing into the
-drop folder**, so it never blocks the agent. The ready-made **Claude Code hook**
-(`integrations/claude_code/tl_hook.py`) is the highest-leverage integration — add it once
-and Claude Code writes itself into your work journal. It reads three optional env vars:
-`SAL_ENDPOINT` (where to POST; default the 8787 endpoint), `SAL_TOKEN` (a relay bearer
-token), and `SAL_DROP_DIR` (the fallback folder). See `integrations/README.md` for the one
+drop folder**, so it never blocks the agent. The ready-made **Claude Code** and **Cursor**
+hooks (`integrations/claude_code/tl_hook.py`, `integrations/cursor/tl_hook.py`) are the
+highest-leverage integration — add one and that tool writes itself into your work journal.
+Install either with the built-in installer, which safely merges into whatever's already in
+the settings file instead of overwriting it:
+
+```powershell
+python -m throughlog.cli hook enable claude-code
+python -m throughlog.cli hook enable cursor
+python -m throughlog.cli hook status claude-code|cursor
+python -m throughlog.cli hook disable claude-code|cursor
+```
+
+Each hook reads three optional env vars: `TL_ENDPOINT` (where to POST; default the 8787
+endpoint), `TL_TOKEN` (a relay bearer token), and `TL_DROP_DIR` (the fallback folder —
+defaults to `data/agent_drop/` when unset). See `integrations/README.md` for the one
 documented JSON contract and the JS client.
 
 The logger never trusts a report blindly: malformed reports are **rejected** (recorded as
@@ -512,7 +523,7 @@ python -m throughlog.cli relay --host 0.0.0.0 --port 8788 --store data/relay
 
 Accounts come from `relay.tokens` in `config.json` — a `{ "secret-token": "account" }`
 map. A request with `Bearer <secret-token>` is scoped to that account; an unknown token
-gets `401`; `/healthz` needs no auth. Point a cloud agent's `SAL_ENDPOINT` / `SAL_TOKEN`
+gets `401`; `/healthz` needs no auth. Point a cloud agent's `TL_ENDPOINT` / `TL_TOKEN`
 (or the Claude Code hook) at this relay and its reports land in that account's store.
 
 **Sync a device** to/from the relay:
@@ -524,8 +535,8 @@ python -m throughlog.cli sync pull                   # fetch the account's event
 python -m throughlog.cli sync pull --since 2026-06-20T00:00:00+00:00
 ```
 
-Endpoint + token resolve from `--endpoint` / `--token`, else `$SAL_RELAY_ENDPOINT` /
-`$SAL_TOKEN`, else `sync.endpoint` / `sync.token` in `config.json`.
+Endpoint + token resolve from `--endpoint` / `--token`, else `$TL_RELAY_ENDPOINT` /
+`$TL_TOKEN`, else `sync.endpoint` / `sync.token` in `config.json`.
 
 **The cloud privacy stance (the guardrail):**
 
@@ -589,6 +600,7 @@ morning, open `journal/` or run `tl serve`.
 | `tl sync {push\|pull}` | Push gated events up / pull the account's events down. Flags: `--endpoint`, `--token`, `--date YYYYMMDD` (push), `--since ISO` (pull). |
 | `tl autostart {enable\|disable\|status}` | Capture-on-logon task (Win Task Scheduler / launchd / cron). `--tray`; `--no-clipboard` / `--no-agents` pass through. |
 | `tl schedule {enable\|disable\|status}` | Nightly synthesis task. `--time HH:MM` (default 22:30); `--no-llm`. |
+| `tl hook {enable\|disable\|status} {claude-code\|cursor}` | Install/remove the drop-in AI-agent hook in the tool's settings file. `--scope {user\|project}` (default `user`). |
 
 (`tl ...` works after `pip install -e .`; otherwise use `python -m throughlog.cli ...`. Run live
 capture/tray with `.\venv\Scripts\python.exe` so the capture libraries are present.)
@@ -610,11 +622,13 @@ throughlog/
 │   ├── relay.py             #   `tl relay` — self-hostable multi-account cloud relay
 │   ├── sync.py              #   `tl sync` — gated device sync (the egress boundary)
 │   ├── agent_sdk.py         #   the agent report builder + AgentReporter client
+│   ├── hooks.py             #   `tl hook` — installer for the Claude Code / Cursor hooks
 │   ├── privacy/             #   the gate: allowlist, redactors, egress check
 │   ├── sources/             #   focus, fs/git, clipboard, agent ingest, proc monitor, github_pull
 │   ├── categorize.py        #   Phase 1 (rules + LLM fallback)
 │   └── synthesize.py        #   Phase 2 (overview + exec summary)
-├── integrations/            # drop-in agent hooks (Claude Code hook, JS client, contract)
+├── integrations/            # drop-in agent hooks (Claude Code + Cursor, JS client, contract)
+│   ├── _common.py           #   shared hook plumbing (stdin parse, send, drop-folder default)
 │   └── demo.py              #   `tl demo` — the built-in synthetic demo day
 ├── projects.json            # your project registry / allowlist (gitignored; create it, or `tl init`)
 ├── projects.example.json    # template for the above (the demo's two sample projects)
@@ -646,7 +660,7 @@ keys, and your project list never leave the machine via git.
 | "no API key resolved — running deterministic-only" | Expected without a key. Set `OPENROUTER_API_KEY` or `llm.api_key`, or just keep using `--no-llm`. The archive is still written. |
 | Diaries have an `archive.md` but no `overview.md` prose | The LLM was off/unreachable. Events are safe; re-run `synthesize` once the key/connection is sorted. |
 | `tl serve` shows nothing | You haven't synthesized yet. Run `tl demo` (builds a demo day and serves it), or `synthesize` then `serve`. |
-| `tl report --slack/--github` says "no webhook/token" | Provide it via the flag, the env var (`$SAL_SLACK_WEBHOOK` / `$GITHUB_TOKEN`), or the `report.*` section of `config.json`. |
+| `tl report --slack/--github` says "no webhook/token" | Provide it via the flag, the env var (`$TL_SLACK_WEBHOOK` / `$GITHUB_TOKEN`), or the `report.*` section of `config.json`. |
 | `tl pull` says "nothing to pull" | No tracked repo has a GitHub remote in `signals.git_remotes`. Add the remote (or run `tl init`, which fills it in). |
 | `tl sync push` reports `blocked=N, sent=0` | Those events have no privacy stamp (weren't gated). Only gate-passed events sync — by design. Re-capture through the bus; never hand-edit events into the log. |
 | Captured nothing during a test in a temp folder | Folders under `AppData\…\Temp` are treated as noise and dropped. Test inside a real allow-listed project folder. |

@@ -401,10 +401,10 @@ def cmd_report(args: argparse.Namespace) -> int:
     rollup = args.weekly or args.monthly       # both pick a multi-day rollup format
 
     if args.slack:
-        webhook = (args.slack_webhook or os.environ.get("SAL_SLACK_WEBHOOK")
+        webhook = (args.slack_webhook or os.environ.get("TL_SLACK_WEBHOOK")
                    or rcfg.get("slack_webhook"))
         if not webhook:
-            print("[tl] no Slack webhook — set --slack-webhook, $SAL_SLACK_WEBHOOK, "
+            print("[tl] no Slack webhook — set --slack-webhook, $TL_SLACK_WEBHOOK, "
                   "or report.slack_webhook in config.json.")
             return 1
         res = rpt.post_slack(webhook, rpt.slack_payload(inp, weekly=rollup))
@@ -512,11 +512,11 @@ def cmd_sync(args: argparse.Namespace) -> int:
     from throughlog import config as cfgmod
     cfg = load_config() if (BASE_DIR / "config.json").exists() else {}
     scfg = cfg.get("sync", {}) or {}
-    endpoint = args.endpoint or os.environ.get("SAL_RELAY_ENDPOINT") or scfg.get("endpoint")
-    token = args.token or os.environ.get("SAL_TOKEN") or scfg.get("token")
+    endpoint = args.endpoint or os.environ.get("TL_RELAY_ENDPOINT") or scfg.get("endpoint")
+    token = args.token or os.environ.get("TL_TOKEN") or scfg.get("token")
     if not endpoint or not token:
-        print("[tl] sync needs --endpoint and --token (or $SAL_RELAY_ENDPOINT / "
-              "$SAL_TOKEN / config sync.*).")
+        print("[tl] sync needs --endpoint and --token (or $TL_RELAY_ENDPOINT / "
+              "$TL_TOKEN / config sync.*).")
         return 1
 
     if args.action == "push":
@@ -579,6 +579,28 @@ def cmd_autostart(args: argparse.Namespace) -> int:
         ok, out = deploy.task_status(deploy.CAPTURE_TASK)
     if out:
         print(out)
+    return 0 if ok else 1
+
+
+def cmd_hook(args: argparse.Namespace) -> int:
+    """Install/remove/inspect a drop-in AI-agent hook (Claude Code, Cursor)."""
+    from throughlog import hooks
+    if args.action == "enable":
+        ok, out = hooks.install_hook(args.tool, scope=args.scope)
+        if ok:
+            print(f"[tl] {out}")
+            print("[tl] make sure `tl capture` / `tl up` is running (or "
+                  "`tl autostart enable`) so reports land immediately — a report "
+                  "posted while capture is offline is still queued in the drop "
+                  "folder and picked up on the next run.")
+        else:
+            print(f"[tl] {out}")
+        return 0 if ok else 1
+    if args.action == "disable":
+        ok, out = hooks.uninstall_hook(args.tool, scope=args.scope)
+    else:
+        ok, out = hooks.hook_status(args.tool, scope=args.scope)
+    print(f"[tl] {out}")
     return 0 if ok else 1
 
 
@@ -711,7 +733,7 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--stdout", action="store_true", help="print to stdout (default)")
     rp.add_argument("--slack", action="store_true", help="post to a Slack incoming webhook")
     rp.add_argument("--slack-webhook", metavar="URL",
-                    help="Slack webhook (else $SAL_SLACK_WEBHOOK / report.slack_webhook)")
+                    help="Slack webhook (else $TL_SLACK_WEBHOOK / report.slack_webhook)")
     rp.add_argument("--github", metavar="OWNER/REPO#N",
                     help="post a comment to a GitHub issue/PR")
     rp.add_argument("--github-token", metavar="TOKEN",
@@ -752,9 +774,9 @@ def build_parser() -> argparse.ArgumentParser:
     sy = sub.add_parser("sync", help="push/pull gated events to/from the relay")
     sy.add_argument("action", choices=["push", "pull"])
     sy.add_argument("--endpoint", metavar="URL",
-                    help="relay base URL (else $SAL_RELAY_ENDPOINT / sync.endpoint)")
+                    help="relay base URL (else $TL_RELAY_ENDPOINT / sync.endpoint)")
     sy.add_argument("--token", metavar="TOKEN",
-                    help="account token (else $SAL_TOKEN / sync.token)")
+                    help="account token (else $TL_TOKEN / sync.token)")
     sy.add_argument("--date", metavar="YYYYMMDD", help="push only one day's thin-log")
     sy.add_argument("--since", metavar="ISO", help="pull events at/after this ts_wall")
     sy.set_defaults(func=cmd_sync)
@@ -791,6 +813,15 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--no-llm", action="store_true",
                     help="schedule deterministic-only synthesis (no API key needed)")
     sc.set_defaults(func=cmd_schedule)
+
+    hk = sub.add_parser("hook",
+                        help="install/remove a drop-in AI-agent hook (Claude Code, Cursor)")
+    hk.add_argument("action", choices=["enable", "disable", "status"])
+    hk.add_argument("tool", choices=["claude-code", "cursor"])
+    hk.add_argument("--scope", choices=["user", "project"], default="user",
+                    help="user settings (~/.claude, ~/.cursor) or this repo's "
+                         "project settings (default: user)")
+    hk.set_defaults(func=cmd_hook)
     return ap
 
 

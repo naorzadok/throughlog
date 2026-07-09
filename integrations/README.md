@@ -36,11 +36,11 @@ Responses: `202` accepted, `422` rejected (malformed), `400` non-JSON.
 
 ## Endpoint + auth (environment)
 
-| var            | default                          | meaning                              |
-| -------------- | -------------------------------- | ------------------------------------ |
-| `SAL_ENDPOINT` | `http://127.0.0.1:8787/report`   | local endpoint or a cloud relay URL  |
-| `SAL_TOKEN`    | —                                | bearer token (relay / multi-user)    |
-| `SAL_DROP_DIR` | —                                | fallback folder if endpoint is down  |
+| var           | default                          | meaning                              |
+| ------------- | -------------------------------- | ------------------------------------ |
+| `TL_ENDPOINT` | `http://127.0.0.1:8787/report`   | local endpoint or a cloud relay URL  |
+| `TL_TOKEN`    | —                                | bearer token (relay / multi-user)    |
+| `TL_DROP_DIR` | —                                | fallback folder if endpoint is down  |
 
 ## Clients
 
@@ -56,9 +56,23 @@ Responses: `202` accepted, `422` rejected (malformed), `400` non-JSON.
 
 ## Drop-in hooks
 
+The fastest way to install either hook is the built-in installer — it safely
+merges into whatever's already in the settings file (never clobbers unrelated
+hooks) and is idempotent (re-running replaces a stale path instead of
+duplicating):
+
+```bash
+python -m throughlog.cli hook enable claude-code   # -> ~/.claude/settings.json
+python -m throughlog.cli hook enable cursor        # -> ~/.cursor/hooks.json
+python -m throughlog.cli hook status  claude-code|cursor
+python -m throughlog.cli hook disable claude-code|cursor
+# --scope project installs into ./.claude/ or ./.cursor/ instead of the user config
+```
+
 - **Claude Code** — [`claude_code/tl_hook.py`](claude_code/tl_hook.py). Reads the
   hook payload on stdin and posts an `AGENT_REPORT`. It **never blocks Claude Code**
-  (always exits 0). Wire it into `settings.json`:
+  (always exits 0). What `tl hook enable claude-code` writes to `settings.json`
+  (or wire it in by hand):
   ```json
   {
     "hooks": {
@@ -74,9 +88,33 @@ Responses: `202` accepted, `422` rejected (malformed), `400` non-JSON.
     }
   }
   ```
+- **Cursor** — [`cursor/tl_hook.py`](cursor/tl_hook.py). Same contract, adapted to
+  Cursor's [hooks](https://cursor.com/docs/hooks) payload (`afterFileEdit`,
+  `stop`). What `tl hook enable cursor` writes to `hooks.json`:
+  ```json
+  {
+    "version": 1,
+    "hooks": {
+      "afterFileEdit": [
+        { "command": "python /ABS/PATH/throughlog/integrations/cursor/tl_hook.py" }
+      ],
+      "stop": [
+        { "command": "python /ABS/PATH/throughlog/integrations/cursor/tl_hook.py" }
+      ]
+    }
+  }
+  ```
 - **CI (GitHub Actions etc.)** — call the Python or JS client at the end of a job;
-  point `SAL_ENDPOINT` at your relay and pass `SAL_TOKEN`. A bot/agent-authored run
+  point `TL_ENDPOINT` at your relay and pass `TL_TOKEN`. A bot/agent-authored run
   becomes a first-class `AGENT_REPORT` thread in the journal.
+
+Both hooks fall back to the local drop folder (`data/agent_drop/` — the same one
+`tl capture` already watches) when the endpoint is unreachable, so "add one hook"
+is true even if capture isn't running the instant the hook fires.
+
+Not covered yet: **Aider** has no hook/webhook mechanism, but its auto-commits
+are already captured by the existing deterministic git-commit watcher; **Antigravity**
+has a hooks system but is new enough that its payload shape isn't build-worthy yet.
 
 ## Verify it end-to-end
 

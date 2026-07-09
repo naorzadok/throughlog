@@ -173,7 +173,7 @@ class AgentReporter:
 # --------------------------------------------------------------------------- #
 # CLI — used by the drop-in hooks (and handy for a manual report)
 #   python -m throughlog.agent_sdk --summary "did X" --identity agent:ci --repo ... \
-#       --endpoint http://127.0.0.1:8787/report --token $SAL_TOKEN
+#       --endpoint http://127.0.0.1:8787/report --token $TL_TOKEN
 # --------------------------------------------------------------------------- #
 def main(argv: list[str] | None = None) -> int:
     import argparse
@@ -192,9 +192,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="a file the agent touched (repeatable)")
     ap.add_argument("--status", default="", help="optional status, e.g. success/failed")
     ap.add_argument("--session", default="", help="session id to group a run")
-    ap.add_argument("--endpoint", default=os.environ.get("SAL_ENDPOINT", DEFAULT_ENDPOINT))
-    ap.add_argument("--token", default=os.environ.get("SAL_TOKEN") or None)
-    ap.add_argument("--drop-dir", default=os.environ.get("SAL_DROP_DIR") or None,
+    ap.add_argument("--endpoint", default=os.environ.get("TL_ENDPOINT", DEFAULT_ENDPOINT))
+    ap.add_argument("--token", default=os.environ.get("TL_TOKEN") or None)
+    ap.add_argument("--drop-dir", default=os.environ.get("TL_DROP_DIR") or None,
                     help="fallback drop folder if the endpoint is unreachable")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args(argv)

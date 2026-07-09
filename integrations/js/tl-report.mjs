@@ -5,7 +5,7 @@
 // agent / CI job / n8n node writes itself into the work journal.
 //
 //   import { AgentReporter } from "./tl-report.mjs";
-//   const r = new AgentReporter({ identity: "agent:ci", token: process.env.SAL_TOKEN });
+//   const r = new AgentReporter({ identity: "agent:ci", token: process.env.TL_TOKEN });
 //   await r.report("deployed v1.2.3", { repo: "github.com/me/app", status: "success" });
 
 export const SCHEMA_VERSION = 2;

@@ -6,8 +6,12 @@ that into a ThroughLog AGENT_REPORT and POST it to the ThroughLog endpoint, so C
 work shows up — trust-classified and attributed to the right project — in your
 journal and dashboard. "Add one hook and Claude Code writes itself into your journal."
 
-Wire it up in your Claude Code settings (`~/.claude/settings.json` or a project
-`.claude/settings.json`):
+Install it with:
+
+    python -m throughlog.cli hook enable claude-code
+
+...or wire it up by hand in your Claude Code settings (`~/.claude/settings.json`
+or a project `.claude/settings.json`):
 
     {
       "hooks": {
@@ -23,11 +27,10 @@ Wire it up in your Claude Code settings (`~/.claude/settings.json` or a project
       }
     }
 
-Endpoint + auth come from the environment (so the same hook works for a local
-endpoint or a cloud relay):
-    SAL_ENDPOINT   default http://127.0.0.1:8787/report
-    SAL_TOKEN      optional bearer token (relay)
-    SAL_DROP_DIR   optional fallback folder if the endpoint is down
+Endpoint + auth come from the environment (see `integrations/_common.py`):
+    TL_ENDPOINT   default http://127.0.0.1:8787/report
+    TL_TOKEN      optional bearer token (relay)
+    TL_DROP_DIR   optional fallback folder if the endpoint is down
 
 This hook is defensive by construction: it NEVER blocks Claude Code. Any error is
 swallowed and it always exits 0, so a journal outage can't interrupt your work.
@@ -35,16 +38,11 @@ swallowed and it always exits 0, so a journal outage can't interrupt your work.
 
 from __future__ import annotations
 
-import json
-import os
 import sys
 from pathlib import Path
 
-# Make `throughlog` importable whether or not the package is installed: the repo root is
-# two directories up from this file (integrations/claude_code/tl_hook.py).
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import _common
 
 
 def _summarize(data: dict) -> tuple[str, dict]:
@@ -53,7 +51,7 @@ def _summarize(data: dict) -> tuple[str, dict]:
     event = data.get("hook_event_name", "")
     cwd = data.get("cwd") or ""
     session = data.get("session_id", "")
-    fields: dict = {"session_id": session, "tool": "claude-code"}
+    fields: dict = {"session_id": session}
     if cwd:
         fields["repo"] = cwd                      # cwd path -> project attribution
         fields["project"] = Path(cwd).name
@@ -79,22 +77,9 @@ def _summarize(data: dict) -> tuple[str, dict]:
 
 def main() -> int:
     try:
-        raw = sys.stdin.read()
-        data = json.loads(raw) if raw.strip() else {}
-    except Exception:
-        data = {}
-
-    try:
-        from throughlog.agent_sdk import AgentReporter, DEFAULT_ENDPOINT
-
+        data = _common.read_stdin_json()
         summary, fields = _summarize(data)
-        reporter = AgentReporter(
-            identity="agent:claude-code",
-            endpoint=os.environ.get("SAL_ENDPOINT", DEFAULT_ENDPOINT),
-            token=os.environ.get("SAL_TOKEN") or None,
-            drop_dir=os.environ.get("SAL_DROP_DIR") or None,
-        )
-        reporter.report(summary, **fields)
+        _common.send("agent:claude-code", "claude-code", summary, **fields)
     except Exception:
         pass  # never block Claude Code — a journal hiccup must not fail the tool
     return 0
