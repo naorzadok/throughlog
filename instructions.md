@@ -253,7 +253,7 @@ fill them in):
   "llm": {
     "provider": "openrouter",
     "base_url": "https://openrouter.ai/api/v1",
-    "model": "openai/gpt-oss-120b:free",
+    "model": "nvidia/nemotron-3-super-120b-a12b:free",
     "model_fallback": "qwen/qwen3-next-80b-a3b-instruct:free",
     "api_key_env": "OPENROUTER_API_KEY",
     "api_key": "",
@@ -279,7 +279,7 @@ fill them in):
   # export OPENROUTER_API_KEY="sk-or-..."             # macOS / Linux
   ```
 
-Get a free key at <https://openrouter.ai/>. The default model `openai/gpt-oss-120b:free`
+Get a free key at <https://openrouter.ai/>. The default model `nvidia/nemotron-3-super-120b-a12b:free`
 is free-tier. **No key? No problem** — run analysis with `--no-llm` and you still get the
 full deterministic archive.
 

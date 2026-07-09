@@ -2,7 +2,7 @@
   "llm": {
     "provider": "openrouter",
     "base_url": "https://openrouter.ai/api/v1",
-    "model": "openai/gpt-oss-120b:free",
+    "model": "nvidia/nemotron-3-super-120b-a12b:free",
     "model_fallback": "qwen/qwen3-next-80b-a3b-instruct:free",
     "reasoning_effort": "",
     "api_key_env": "OPENROUTER_API_KEY",

@@ -745,7 +745,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
               "prose. Without one, ThroughLog still records and builds the deterministic "
               "archive + timeline — you just don't get the written narrative.")
         print("[tl] Get a free key at https://openrouter.ai/keys "
-              "(default model: openai/gpt-oss-120b:free).")
+              "(default model: nvidia/nemotron-3-super-120b-a12b:free).")
         key = sf.ask_text("Paste your API key (blank to skip):", default="", secret=True)
         if key:
             from throughlog import appconfig

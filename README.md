@@ -134,7 +134,7 @@ On Windows, **`autostart`** installs a per-user **Startup-folder launcher** (no 
 
 ### Configure the LLM
 
-Copy `config.example.json` to `config.json` (gitignored) and set your key — either inline in `llm.api_key`, or via the `OPENROUTER_API_KEY` environment variable (the inline key wins if both are set). Get a free key at [openrouter.ai](https://openrouter.ai/). The default model `openai/gpt-oss-120b:free` is free-tier. Optionally set `llm.reasoning_effort` (`low`/`medium`/`high`; empty = provider default) to turn up thinking on models that support it — it's sent as OpenRouter's unified `reasoning` param and safely ignored by models that don't.
+Copy `config.example.json` to `config.json` (gitignored) and set your key — either inline in `llm.api_key`, or via the `OPENROUTER_API_KEY` environment variable (the inline key wins if both are set). Get a free key at [openrouter.ai](https://openrouter.ai/). The default model `nvidia/nemotron-3-super-120b-a12b:free` is free-tier. Optionally set `llm.reasoning_effort` (`low`/`medium`/`high`; empty = provider default) to turn up thinking on models that support it — it's sent as OpenRouter's unified `reasoning` param and safely ignored by models that don't.
 
 ### Verify
 

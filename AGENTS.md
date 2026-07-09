@@ -45,7 +45,7 @@ tl up                           # start capture + open the dashboard
    journal (the overview, detailed entries, and the executive summary). Without a
    key ThroughLog still records and builds the deterministic archive + timeline —
    it just skips the written prose. A free key works: https://openrouter.ai/keys
-   (default model `openai/gpt-oss-120b:free`). Let the user paste it into
+   (default model `nvidia/nemotron-3-super-120b-a12b:free`). Let the user paste it into
    `tl setup` (stored write-only in `config.json`, never echoed) or the dashboard
    Settings page. **Never ask the user to paste a key into the chat; never log it.**
 4. **Nightly synthesis** — "Rebuild your journal automatically each night?"
