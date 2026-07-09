@@ -130,11 +130,14 @@ def cmd_synthesize(args: argparse.Namespace) -> int:
         options = replace(options, write_entries=args.entries)
     if args.summary is not None:                # --summary off|weekly|monthly overrides config
         options = replace(options, summary_cadence=args.summary)
+    if args.skip_unchanged is not None:         # --skip-unchanged / --no-skip-unchanged
+        options = replace(options, skip_unchanged=args.skip_unchanged)
 
     print(f"[tl] {len(events)} events from {len(sources)} file(s) "
           f"-> journal: {journal_dir}  (llm={'on' if client else 'off'}, "
           f"entries={'on' if options.write_entries else 'off'}/{options.entry_period}, "
-          f"summary={options.summary_cadence})")
+          f"summary={options.summary_cadence}, "
+          f"skip_unchanged={'on' if options.skip_unchanged else 'off'})")
     res = run_pipeline(events, projects, journal_dir=journal_dir,
                        client=client, today=today, options=options)
 
@@ -822,6 +825,11 @@ def build_parser() -> argparse.ArgumentParser:
     syn.add_argument("--summary", choices=("off", "weekly", "monthly"), default=None,
                      help="force the cross-project period summary cadence "
                           "(default: config synthesis.summary_cadence)")
+    syn.add_argument("--skip-unchanged", action=argparse.BooleanOptionalAction,
+                     default=None,
+                     help="reuse a project's existing overview/entries when its events "
+                          "are unchanged (saves LLM calls on re-runs; default: config "
+                          "synthesis.skip_unchanged)")
     syn.set_defaults(func=cmd_synthesize)
 
     sm = sub.add_parser("summarize",

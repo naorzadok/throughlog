@@ -363,6 +363,43 @@ class Client(unittest.TestCase):
             c.chat("s", "u")
         self.assertEqual(seen, ["test/model", "test/backup"])   # both tried before failing
 
+    def test_from_config_reads_max_requests_per_min(self):
+        self.assertEqual(
+            LLMConfig.from_config({"llm": {"max_requests_per_min": 18}}).max_requests_per_min, 18)
+        self.assertEqual(LLMConfig.from_config({"llm": {}}).max_requests_per_min, 0)
+        # junk / negative -> disabled (never a crash, never a negative rate)
+        self.assertEqual(
+            LLMConfig.from_config({"llm": {"max_requests_per_min": "x"}}).max_requests_per_min, 0)
+        self.assertEqual(
+            LLMConfig.from_config({"llm": {"max_requests_per_min": -4}}).max_requests_per_min, 0)
+
+    def test_rate_limiter_disabled_by_default(self):
+        # No config knob -> the gate is a no-op, so the wire path is byte-identical.
+        self.assertFalse(LLMClient(_cfg())._limiter.enabled)
+
+    def test_rate_limiter_paces_physical_requests(self):
+        # Swap in a virtual-clock limiter so pacing is deterministic; this also proves
+        # _post gates on acquire() (a paced request sleeps exactly one window).
+        from throughlog.llm.ratelimit import RateLimiter, WINDOW_SEC
+        slept: list[float] = []
+        now = {"t": 0.0}
+
+        def mono():
+            return now["t"]
+
+        def sleep(dt):
+            slept.append(dt)
+            now["t"] += dt
+
+        opener = _opener_returning({"choices": [{"message": {"content": "ok"}}]})
+        c = LLMClient(_cfg(max_requests_per_min=2), opener=opener, sleep=lambda _: None)
+        c._limiter = RateLimiter(2, monotonic=mono, sleep=sleep)
+        c.chat("s", "u")
+        c.chat("s", "u")                       # two requests fill the 60s window at t=0
+        self.assertEqual(slept, [])
+        c.chat("s", "u")                       # third is paced by a full window
+        self.assertEqual(slept, [WINDOW_SEC])
+
 
 class SmokeDiagnostics(unittest.TestCase):
     """The smoke must tell a transient 429 (account fine, retry/credits) apart

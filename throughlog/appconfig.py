@@ -34,12 +34,12 @@ from throughlog import config as cfgmod
 # disk is preserved untouched.
 ALLOWED_LLM = frozenset({"api_key", "model", "base_url", "model_fallback",
                          "provider", "api_key_env", "local_endpoint", "local_model",
-                         "reasoning_effort"})
+                         "reasoning_effort", "max_requests_per_min"})
 ALLOWED_PRIVACY = frozenset({"capture_diffs", "clipboard_preview", "diff_max_lines",
                              "diff_max_bytes", "clipboard_preview_chars",
                              "allowlist_extra", "ignore_globs"})
 ALLOWED_SYNTHESIS = frozenset({"write_entries", "entry_period", "summary_cadence",
-                               "entry_max_tokens"})
+                               "entry_max_tokens", "skip_unchanged"})
 ALLOWED_INIT = frozenset({"llm_enrich"})
 
 

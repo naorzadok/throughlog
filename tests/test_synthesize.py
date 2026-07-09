@@ -280,6 +280,66 @@ class RunDriver(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+class SkipUnchanged(unittest.TestCase):
+    """The opt-in re-run economy: an unchanged project reuses its LLM output instead of
+    re-billing; any change re-synthesizes it; default OFF is byte-identical to before."""
+
+    def setUp(self):
+        self.out = Path(tempfile.mkdtemp(prefix="tl_skip_test_"))
+
+    def tearDown(self):
+        shutil.rmtree(self.out, ignore_errors=True)
+
+    def test_unchanged_rerun_makes_no_llm_calls(self):
+        opts = SynthesisOptions(skip_unchanged=True)
+        events = [focus("logger editor", pid="logger",
+                        active_file="throughlog/synthesize.py")]
+        c1 = FakeClient(_overview_reply(daily="Day one."))
+        syn.run(events, PROJECTS, journal_dir=self.out, client=c1,
+                today="2026-06-21", options=opts)
+        self.assertGreater(c1.calls, 0)
+        overview_before = (self.out / "project_logger" / "overview.md").read_text("utf-8")
+
+        # Re-run the SAME batch: nothing moved -> zero LLM calls, output untouched.
+        c2 = FakeClient(_overview_reply(daily="SHOULD NOT APPEAR"))
+        res = syn.run(events, PROJECTS, journal_dir=self.out, client=c2,
+                      today="2026-06-22", options=opts)
+        self.assertEqual(c2.calls, 0)
+        self.assertEqual((self.out / "project_logger" / "overview.md").read_text("utf-8"),
+                         overview_before)
+        self.assertEqual(res.exec_summary, "")      # exec not rebuilt; on-disk copy stays
+        self.assertTrue((self.out / "executive_summary.md").exists())
+        # The deterministic archive is still present after the skip.
+        self.assertIn("## 2026-06-21",
+                      (self.out / "project_logger" / "archive.md").read_text("utf-8"))
+
+    def test_changed_events_rerun_resynthesizes(self):
+        opts = SynthesisOptions(skip_unchanged=True)
+        c1 = FakeClient(_overview_reply())
+        syn.run([focus("v1", pid="logger", ts="2026-06-21T10:00:00+03:00")],
+                PROJECTS, journal_dir=self.out, client=c1, today="2026-06-21", options=opts)
+        c2 = FakeClient(_overview_reply())
+        syn.run([focus("v2 different work", pid="logger", ts="2026-06-21T11:00:00+03:00")],
+                PROJECTS, journal_dir=self.out, client=c2, today="2026-06-21", options=opts)
+        self.assertGreater(c2.calls, 0)             # content changed -> re-synthesized
+
+    def test_default_off_rebills_and_writes_no_state(self):
+        events = [focus("logger editor", pid="logger")]
+        syn.run(events, PROJECTS, journal_dir=self.out,
+                client=FakeClient(_overview_reply()), today="2026-06-21")
+        c2 = FakeClient(_overview_reply())
+        syn.run(events, PROJECTS, journal_dir=self.out, client=c2, today="2026-06-21")
+        self.assertGreater(c2.calls, 0)             # no guard -> re-billed as before
+        self.assertFalse((self.out / syn.SYNTH_STATE_FILE).exists())   # no new artifact
+
+    def test_state_file_written_when_enabled(self):
+        syn.run([focus("x", pid="logger")], PROJECTS, journal_dir=self.out,
+                client=FakeClient(_overview_reply()), today="2026-06-21",
+                options=SynthesisOptions(skip_unchanged=True))
+        self.assertTrue((self.out / syn.SYNTH_STATE_FILE).exists())
+
+
+# --------------------------------------------------------------------------- #
 class DetailedEntries(unittest.TestCase):
     def setUp(self):
         self.out = Path(tempfile.mkdtemp(prefix="tl_entries_test_"))

@@ -19,6 +19,8 @@ The egress gate is re-run inside `client.chat` before every send (see llm/client
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -54,6 +56,11 @@ class SynthesisOptions:
     # The durable cross-project retrospective tier: "off" | "weekly" | "monthly" ->
     # journal/summaries/<period>.md, distilled from the gated entries/archive sections.
     summary_cadence: str = "off"
+    # Opt-in re-run economy (default OFF): when a project's event batch is byte-for-byte
+    # unchanged since its last synthesis, reuse the already-written overview/entries
+    # instead of re-billing the LLM. The deterministic archive is still rewritten. Never
+    # skips a project that changed, so it can't drop work the pipeline needs.
+    skip_unchanged: bool = False
 
 
 DEFAULT_SYNTHESIS = SynthesisOptions()
@@ -634,6 +641,61 @@ def _write_period_summary(journal_dir: Path, period_key: str, period: str, body:
 
 
 # --------------------------------------------------------------------------- #
+# Skip-unchanged guard (opt-in, default OFF) — reuse a project's already-written
+# LLM output when its event batch is unchanged since the last synthesis, so a
+# re-run does not re-bill the model. State lives in journal/.synth_state.json
+# (under gitignored journal/); the deterministic archive is still rewritten.
+# --------------------------------------------------------------------------- #
+SYNTH_STATE_FILE = ".synth_state.json"
+
+
+def _project_fingerprint(events: list[NormalizedEvent]) -> str:
+    """A stable, order-independent content hash of a project's event batch. Two runs
+    over the same (gated) events produce the same digest; any added/changed/removed
+    event changes it — so the guard reuses old output only when nothing moved."""
+    digests = sorted(
+        hashlib.sha256(
+            json.dumps(e.to_dict(), sort_keys=True, ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+        for e in events)
+    h = hashlib.sha256()
+    for d in digests:
+        h.update(d.encode("ascii"))
+    return h.hexdigest()
+
+
+def _load_synth_state(journal_dir: Path) -> dict[str, dict[str, str]]:
+    p = journal_dir / SYNTH_STATE_FILE
+    try:
+        data = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_synth_state(journal_dir: Path, state: dict[str, dict[str, str]]) -> None:
+    p = journal_dir / SYNTH_STATE_FILE
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    try:
+        tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n",
+                       encoding="utf-8")
+        tmp.replace(p)
+    except OSError:
+        pass
+
+
+def _project_archive(events: list[NormalizedEvent]) -> str:
+    """The deterministic archive markdown for a project's whole batch (all its dates).
+    Extracted so the skip path can rebuild the archive with no LLM work."""
+    ordered = sorted(events, key=lambda e: e.ts_wall)
+    by_date: dict[str, list[NormalizedEvent]] = {}
+    for e in ordered:
+        by_date.setdefault(_date_key(e.ts_wall), []).append(e)
+    return "".join(build_archive_section(_date_label(d), by_date[d])
+                   for d in sorted(by_date))
+
+
+# --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #
 def run(events: list[Any], projects: list[dict[str, Any]], *, journal_dir: str | Path,
@@ -660,6 +722,12 @@ def run(events: list[Any], projects: list[dict[str, Any]], *, journal_dir: str |
     result = SynthesisRun(today=today)
     paragraphs: dict[str, str] = {}
 
+    # Opt-in re-run economy: reuse a project's LLM output when its events are unchanged.
+    skip = options.skip_unchanged
+    prior_state = _load_synth_state(journal_dir) if skip else {}
+    new_state: dict[str, dict[str, str]] = dict(prior_state)
+    any_changed = False
+
     for pid in sorted(groups):
         project = by_id.get(pid, {"id": pid, "name": pid})
         name = project.get("name", pid)
@@ -667,6 +735,25 @@ def run(events: list[Any], projects: list[dict[str, Any]], *, journal_dir: str |
         project_dir.mkdir(parents=True, exist_ok=True)
         overview_path = project_dir / "overview.md"
         archive_path = project_dir / "archive.md"
+
+        # Unchanged since last synthesis? Reuse the existing overview/entries (no LLM),
+        # still refreshing the deterministic archive so a deleted archive self-heals.
+        fp = _project_fingerprint(groups[pid]) if skip else ""
+        prior = prior_state.get(pid) or {}
+        if skip and prior.get("fingerprint") == fp and overview_path.exists():
+            archive_section = _project_archive(groups[pid])
+            existing_archive = archive_path.read_text(encoding="utf-8") \
+                if archive_path.exists() else ""
+            archive_path.write_text(
+                _merge_dated_sections(existing_archive, archive_section), encoding="utf-8")
+            daily = prior.get("daily", "")
+            if daily:
+                paragraphs[pid] = daily
+            result.projects.append(ProjectJournal(
+                pid, len(groups[pid]), archive_section,
+                overview_path.read_text(encoding="utf-8"), daily, 0, None))
+            continue
+        any_changed = True
 
         current = overview_path.read_text(encoding="utf-8") if overview_path.exists() \
             else overview_stub(name, today)
@@ -696,7 +783,17 @@ def run(events: list[Any], projects: list[dict[str, Any]], *, journal_dir: str |
 
         if pd.daily_paragraph:
             paragraphs[pid] = pd.daily_paragraph
+        if skip:
+            new_state[pid] = {"fingerprint": fp, "daily": pd.daily_paragraph}
         result.projects.append(pd)
+
+    if skip:
+        _save_synth_state(journal_dir, new_state)
+
+    # Nothing changed this run: the daily/exec/period files on disk are still correct,
+    # so don't re-bill the model rebuilding them (and don't prepend a duplicate daily).
+    if skip and not any_changed:
+        return result
 
     _prepend_daily(journal_dir, today, paragraphs)
     body, exec_error = synthesize_exec_summary(paragraphs, today, client=client)

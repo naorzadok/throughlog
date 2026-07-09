@@ -98,6 +98,7 @@ def synthesis_options_from(config: dict[str, Any] | None = None):
         entry_max_tokens=int(syn.get("entry_max_tokens", 1500)),
         entry_period=period if period in ("month", "week") else "month",
         summary_cadence=cadence if cadence in ("off", "weekly", "monthly") else "off",
+        skip_unchanged=bool(syn.get("skip_unchanged", False)),
     )
 
 

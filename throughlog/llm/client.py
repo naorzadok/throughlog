@@ -27,6 +27,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Callable
 
 from throughlog.privacy import egress
+from throughlog.llm.ratelimit import RateLimiter
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_KEY_ENV = "OPENROUTER_API_KEY"
@@ -55,6 +56,10 @@ class LLMConfig:
     api_key_env: str = DEFAULT_KEY_ENV
     timeout_sec: float = 600.0
     max_retries: int = 3
+    # Client-side pacing: at most this many physical requests per rolling minute
+    # (0 = disabled, byte-identical to no gate). The "timing manager" that keeps a
+    # free-tier key under its per-minute limit; it delays a call, never drops one.
+    max_requests_per_min: int = 0
     # OpenRouter's unified reasoning knob ("low"/"medium"/"high"). Empty = provider
     # default (the param is omitted entirely). Models that don't support reasoning
     # safely ignore it, so this needs no per-model capability detection.
@@ -64,6 +69,10 @@ class LLMConfig:
     def from_config(cls, config: dict[str, Any]) -> "LLMConfig":
         llm = (config or {}).get("llm", {}) or {}
         effort = str(llm.get("reasoning_effort", "") or "").strip().lower()
+        try:
+            rpm = int(llm.get("max_requests_per_min", 0) or 0)
+        except (TypeError, ValueError):
+            rpm = 0
         return cls(
             provider=llm.get("provider", "openrouter"),
             base_url=str(llm.get("base_url", DEFAULT_BASE_URL)).rstrip("/"),
@@ -73,6 +82,7 @@ class LLMConfig:
             api_key_env=llm.get("api_key_env", DEFAULT_KEY_ENV),
             timeout_sec=float(llm.get("timeout_sec", 600.0)),
             max_retries=int(llm.get("max_retries", 3)),
+            max_requests_per_min=max(0, rpm),
             reasoning_effort=effort if effort in ("low", "medium", "high") else "",
         )
 
@@ -126,6 +136,9 @@ class LLMClient:
         self.cfg = config
         self._opener = opener or urllib.request.urlopen
         self._sleep = sleep
+        # Client-side pacing gate. Shares the injected `sleep`, so tests never really
+        # wait; disabled (rpm<=0) it is a no-op, keeping the wire byte-identical.
+        self._limiter = RateLimiter(config.max_requests_per_min, sleep=sleep)
 
     # -- public ------------------------------------------------------------- #
     def chat(self, system: str, user: str, *, temperature: float = 0.0,
@@ -200,6 +213,10 @@ class LLMClient:
                 "X-Title": "throughlog",
             },
         )
+        # Pace before we actually send — this is the per-request layer, so retries
+        # and fallback-model requests are throttled too (they all count against the
+        # provider's per-minute limit). Delays only; never skips the send.
+        self._limiter.acquire()
         try:
             with self._opener(req, timeout=self.cfg.timeout_sec) as resp:
                 raw = resp.read().decode("utf-8", "replace")

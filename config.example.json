@@ -9,6 +9,7 @@
     "api_key": "",
     "timeout_sec": 600,
     "max_retries": 3,
+    "max_requests_per_min": 18,
     "local_endpoint": "http://localhost:11434",
     "local_model": "llama3.1:8b"
   },

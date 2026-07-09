@@ -123,6 +123,20 @@ class UpdateSynthesisAndInit(unittest.TestCase):
             self.assertNotIn("BOGUS", out["synthesis"])
             self.assertEqual(out["relay"], {"tokens": {"k": "v"}})   # unrelated keys kept
 
+    def test_synthesis_accepts_skip_unchanged(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfgp = Path(d) / "config.json"
+            appconfig.update_synthesis({"skip_unchanged": True}, config_path=cfgp)
+            out = json.loads(cfgp.read_text(encoding="utf-8"))
+            self.assertIs(out["synthesis"]["skip_unchanged"], True)
+
+    def test_llm_accepts_max_requests_per_min(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfgp = Path(d) / "config.json"
+            appconfig.update_llm({"max_requests_per_min": 18}, config_path=cfgp)
+            out = json.loads(cfgp.read_text(encoding="utf-8"))
+            self.assertEqual(out["llm"]["max_requests_per_min"], 18)
+
     def test_init_enrich_toggle_roundtrips(self):
         with tempfile.TemporaryDirectory() as d:
             cfgp = Path(d) / "config.json"

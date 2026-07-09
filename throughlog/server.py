@@ -747,6 +747,12 @@ def settings_html(cfg: dict[str, Any], projects: list[dict[str, Any]], *,
         f'<span class="fld"><label for="base_url">Base URL</label>'
         f'<input type="text" id="base_url" name="base_url" '
         f'value="{_t(llm.get("base_url"))}"></span>'
+        f'<span class="fld"><label for="max_requests_per_min">Max requests / min '
+        f'<span class="empty" style="font-weight:400">(0 = no limit; paces calls to '
+        f'stay under a free-tier rate — never drops one)</span></label>'
+        f'<input type="number" min="0" id="max_requests_per_min" '
+        f'name="max_requests_per_min" '
+        f'value="{_t(llm.get("max_requests_per_min", 0))}"></span>'
         + _reasoning_select(llm.get("reasoning_effort")) +
         '<button class="btn primary">Save model settings</button></form></section>'
     )
@@ -786,6 +792,8 @@ def settings_html(cfg: dict[str, Any], projects: list[dict[str, Any]], *,
         _select("summary_cadence", "Period summary",
                 str(syn.get("summary_cadence", "off")).lower(),
                 [("off", "Off"), ("weekly", "Weekly"), ("monthly", "Monthly")]) +
+        _checkbox("skip_unchanged", "Skip re-synthesizing unchanged projects "
+                  "(saves LLM calls on re-runs)", bool(syn.get("skip_unchanged", False))) +
         '<button class="btn primary">Save journal settings</button></form></section>'
     )
 
@@ -1265,6 +1273,9 @@ def build_handler(journal_dir: Path, data_dir_path: Path, registry: dict[str, st
                     effort = field("reasoning_effort").strip().lower()
                     if effort in ("", "low", "medium", "high"):
                         patch["reasoning_effort"] = effort     # "" clears -> default
+                    rpm = field("max_requests_per_min").strip()
+                    if rpm.isdigit():                          # 0 = no limit
+                        patch["max_requests_per_min"] = int(rpm)
                     key = field("api_key").strip()
                     if key:                       # blank -> keep the existing key
                         patch["api_key"] = key
@@ -1284,7 +1295,8 @@ def build_handler(journal_dir: Path, data_dir_path: Path, registry: dict[str, st
                 elif path == "/settings/synthesis":
                     period = field("entry_period").strip().lower()
                     cadence = field("summary_cadence").strip().lower()
-                    patch = {"write_entries": "write_entries" in form}
+                    patch = {"write_entries": "write_entries" in form,
+                             "skip_unchanged": "skip_unchanged" in form}
                     if period in ("month", "week"):
                         patch["entry_period"] = period
                     if cadence in ("off", "weekly", "monthly"):
