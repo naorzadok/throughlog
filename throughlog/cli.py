@@ -624,6 +624,180 @@ def cmd_schedule(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def _setup_run_init(root: Path) -> list[str]:
+    """Scan ``root`` for git repos and merge them into projects.json (the same
+    deterministic discovery as ``tl init``). Returns a one-item recap list on
+    success, empty otherwise. Never scans anything the user didn't name."""
+    from throughlog import onboard
+    root = root.expanduser()
+    if not root.exists():
+        print(f"[tl] scan root does not exist: {root} — skipping project discovery.")
+        return []
+    out_path = BASE_DIR / "projects.json"
+    discovered, existing, path = onboard.init_registry(
+        root, out_path, max_depth=4, dry_run=False, client=None)
+    if not discovered:
+        print(f"[tl] no new git repos found under {root} "
+              f"({len(existing)} already registered).")
+        return []
+    print(f"[tl] added {len(discovered)} project(s) (kept {len(existing)} existing):")
+    for p in discovered:
+        print(f"  + {p['id']}: {p['signals']['paths'][0]}")
+    print(f"[tl] wrote {path}. Review keywords/window_patterns any time in Settings.")
+    return [f"{len(discovered)} project(s)"]
+
+
+def _setup_print_plan(state, steps) -> None:
+    """Read-only: print the detected machine state + recommended steps. This is what
+    ``tl setup --plan`` emits — the call an agent makes to surface options to the
+    user without changing anything."""
+    print("[tl] ThroughLog setup — current state (nothing has been changed):")
+    print(f"     platform      : {state.platform}")
+    print(f"     agent tools   : {', '.join(state.agent_tools) or 'none detected'}")
+    for tool in state.agent_tools:
+        print(f"       - {tool} hook : {'installed' if state.hooks_installed.get(tool) else 'not installed'}")
+    print(f"     projects      : {state.project_count} registered")
+    print(f"     LLM key       : {'set' if state.key_set else 'not set'}")
+    print(f"     nightly       : {state.nightly_at or 'off'}")
+    print(f"     capture@logon : {'on' if state.autostart_on else 'off'}")
+    print(f"     recording now : {'yes' if state.capture_live else 'no'}")
+    print("\n[tl] Recommended steps:")
+    for s in steps:
+        mark = "[done]" if s.done else ("[n/a] " if not s.applicable else "[todo]")
+        print(f"  {mark} {s.label}")
+        print(f"         why: {s.why}")
+        print(f"         run: {' '.join(s.command)}")
+    print("\n[tl] Apply interactively with `tl setup`, or non-interactively with flags, "
+          "e.g. `tl setup --yes --init <folder>`.")
+
+
+def cmd_setup(args: argparse.Namespace) -> int:
+    """Guided, approval-gated onboarding — walk the user through the whole powerhouse
+    one opt-in step at a time (agent hooks, project discovery, the LLM key, nightly
+    synthesis, capture-at-logon, launching the app). Composes existing guarded
+    building blocks; touches neither the pipeline nor the privacy gate.
+
+    `--plan` prints the detected state + recommendations and changes nothing (the
+    read-only call an installing agent makes). A non-interactive run with no explicit
+    choice falls back to `--plan` rather than hanging on a prompt."""
+    from throughlog import setup_flow as sf
+
+    state = sf.detect_state()
+    steps = sf.plan_steps(state)
+    interactive = sys.stdin.isatty()
+
+    explicit = any(v is not None and v is not False for v in (
+        args.hooks, args.init, args.key, args.nightly, args.autostart, args.start,
+    )) or args.no_init or args.no_nightly
+    if args.plan or (not interactive and not args.yes and not explicit):
+        _setup_print_plan(state, steps)
+        return 0
+
+    def want(flag: bool | None, question: str, *, default: bool = True) -> bool:
+        if flag is not None:
+            return flag
+        return sf.confirm(question, default=default, assume_yes=args.yes)
+
+    print("[tl] ThroughLog setup — turning on the powerhouse, one opt-in step at a time.\n")
+    enabled: list[str] = []
+
+    # 1. Agent hooks (Claude Code / Cursor) — record what your agents do.
+    if args.hooks is not False:
+        from throughlog import hooks
+        if state.agent_tools:
+            for tool in state.agent_tools:
+                if state.hooks_installed.get(tool):
+                    print(f"[tl] {tool} hook already installed — skipping.")
+                    continue
+                if want(args.hooks, f"Install the {tool} hook so it records into your journal?"):
+                    ok, msg = hooks.install_hook(tool, scope=args.scope)
+                    print(f"[tl] {msg}")
+                    if ok:
+                        enabled.append(f"{tool} hook")
+        elif args.hooks:
+            print("[tl] no supported agent tool detected (~/.claude, ~/.cursor) — skipping hooks.")
+
+    # 2. Project discovery — ONLY ever on a folder the user explicitly names, because
+    #    a project's paths widen the privacy allowlist (what becomes observable).
+    if args.no_init:
+        print("[tl] skipping project discovery.")
+    elif args.init:
+        enabled += _setup_run_init(Path(args.init))
+    elif interactive and not args.yes:
+        if sf.confirm("Scan a folder for your git repos now? (registers them so they're "
+                      "observed — you'll name the folder)", default=(state.project_count == 0)):
+            default_root = str(Path.home() / "projects")
+            root = sf.ask_text(f"Folder to scan [{default_root}]:", default=default_root)
+            if root:
+                enabled += _setup_run_init(Path(root))
+    else:
+        print("[tl] project discovery needs an explicit folder (it widens what's observed) "
+              "— run `tl setup --init <folder>` when ready.")
+
+    # 3. LLM key — explain what it buys, then offer to paste it (write-only, never echoed).
+    if state.key_set:
+        print("[tl] LLM key already set — skipping.")
+    elif want(args.key, "Set an LLM API key now? (enables the narrative journal)"):
+        print("[tl] An API key turns on the overview / detailed entries / executive-summary "
+              "prose. Without one, ThroughLog still records and builds the deterministic "
+              "archive + timeline — you just don't get the written narrative.")
+        print("[tl] Get a free key at https://openrouter.ai/keys "
+              "(default model: openai/gpt-oss-120b:free).")
+        key = sf.ask_text("Paste your API key (blank to skip):", default="", secret=True)
+        if key:
+            from throughlog import appconfig
+            appconfig.update_llm({"api_key": key})
+            print("[tl] API key saved to config.json (write-only — never shown again).")
+            enabled.append("LLM key")
+        else:
+            print("[tl] no key entered — add one any time in the dashboard Settings.")
+
+    # 4. Nightly synthesis — the no-admin, in-app timer (runs inside `tl up`).
+    if state.nightly_at:
+        print(f"[tl] nightly synthesis already set for {state.nightly_at} — skipping.")
+    elif not args.no_nightly:
+        time = args.nightly
+        if time is None and sf.confirm(
+                "Synthesize your journal every night at 22:30?", default=True, assume_yes=args.yes):
+            time = "22:30"
+        if time:
+            from throughlog import appconfig
+            appconfig.update_schedule(time)
+            print(f"[tl] nightly synthesis set for {time} — runs while `tl up` is open.")
+            enabled.append(f"nightly @ {time}")
+
+    # 5. Capture at logon — record the workday automatically (no admin).
+    if state.autostart_on:
+        print("[tl] capture-at-logon already enabled — skipping.")
+    elif want(args.autostart, "Start capturing automatically at logon?"):
+        from throughlog import deploy
+        ok, out = deploy.enable_autostart()
+        if ok:
+            print("[tl] capture-at-logon enabled — starts at your next login.")
+            enabled.append("capture at logon")
+        if out:
+            print(out)
+
+    # Recap before the (possibly blocking) launch.
+    if enabled:
+        print(f"\n[tl] Setup complete. Enabled: {', '.join(enabled)}.")
+    else:
+        print("\n[tl] Setup complete — nothing changed.")
+
+    # 6. Start now (blocks: serves capture + dashboard).
+    if state.capture_live:
+        print("[tl] ThroughLog is already running.")
+        return 0
+    if want(args.start, "Start ThroughLog now (open the dashboard)?"):
+        ns = argparse.Namespace(
+            host="127.0.0.1", port=None, journal_dir=None, data=None,
+            no_capture=False, no_clipboard=False, no_agents=False,
+            no_browser=False, heartbeat=30.0)
+        return cmd_up(ns)
+    print("[tl] Start the app any time with `tl up`.")
+    return 0
+
+
 # --------------------------------------------------------------------------- #
 # Parser
 # --------------------------------------------------------------------------- #
@@ -822,6 +996,32 @@ def build_parser() -> argparse.ArgumentParser:
                     help="user settings (~/.claude, ~/.cursor) or this repo's "
                          "project settings (default: user)")
     hk.set_defaults(func=cmd_hook)
+
+    st = sub.add_parser(
+        "setup",
+        help="guided, approval-gated onboarding (hooks, projects, key, nightly, autostart)")
+    st.add_argument("-y", "--yes", action="store_true",
+                    help="accept the suggested default for every yes/no step (agent-safe; "
+                         "still won't paste a key or scan a folder it wasn't given)")
+    st.add_argument("--plan", action="store_true",
+                    help="print the detected state + recommended steps and exit — changes nothing")
+    st.add_argument("--hooks", action=argparse.BooleanOptionalAction, default=None,
+                    help="install/skip the detected agent hooks")
+    st.add_argument("--init", metavar="ROOT", default=None,
+                    help="scan ROOT for git repos and register them (widens the allowlist)")
+    st.add_argument("--no-init", action="store_true", help="skip project discovery")
+    st.add_argument("--key", action=argparse.BooleanOptionalAction, default=None,
+                    help="offer/skip the LLM API-key step")
+    st.add_argument("--nightly", metavar="HH:MM", nargs="?", const="22:30", default=None,
+                    help="enable nightly synthesis at HH:MM (default 22:30)")
+    st.add_argument("--no-nightly", action="store_true", help="skip nightly synthesis")
+    st.add_argument("--autostart", action=argparse.BooleanOptionalAction, default=None,
+                    help="enable/skip capture-at-logon")
+    st.add_argument("--start", action=argparse.BooleanOptionalAction, default=None,
+                    help="start (or don't) the app at the end")
+    st.add_argument("--scope", choices=["user", "project"], default="user",
+                    help="hook install scope (default: user)")
+    st.set_defaults(func=cmd_setup)
     return ap
 
 

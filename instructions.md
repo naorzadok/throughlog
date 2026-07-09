@@ -495,6 +495,12 @@ python -m throughlog.cli hook status claude-code|cursor
 python -m throughlog.cli hook disable claude-code|cursor
 ```
 
+Or install the hooks as part of the **one guided command**, `tl setup` — an approval-gated
+walkthrough (hooks → project discovery → LLM key → nightly synthesis → capture-at-logon →
+launch), each step opt-in. It's also the flow an AI agent follows when it installs ThroughLog
+for you (see the repo-root `AGENTS.md`): `tl setup --plan` prints what it would do and changes
+nothing; a non-interactive run declines every step rather than acting without consent.
+
 Each hook reads three optional env vars: `TL_ENDPOINT` (where to POST; default the 8787
 endpoint), `TL_TOKEN` (a relay bearer token), and `TL_DROP_DIR` (the fallback folder —
 defaults to `data/agent_drop/` when unset). See `integrations/README.md` for the one
@@ -589,6 +595,7 @@ morning, open `journal/` or run `tl serve`.
 | Command | What it does |
 |---|---|
 | `tl demo` | Zero-config guided tour: generate a synthetic demo day (no key) and open the dashboard on it. Flags: `--no-serve`, `--no-browser`, `--port`. |
+| `tl setup` | Guided, approval-gated onboarding: hooks → project discovery → LLM key → nightly → capture-at-logon → launch, each step opt-in. Flags: `--plan` (read-only preview), `--yes`, `--hooks/--no-hooks`, `--init ROOT`/`--no-init`, `--key/--no-key`, `--nightly [HH:MM]`/`--no-nightly`, `--autostart/--no-autostart`, `--start/--no-start`, `--scope`. |
 | `tl init [root]` | Auto-discover git repos under `root` (default `~/projects`) into `projects.json`. Merge-only. Flags: `--dry-run`, `--depth N` (default 4), `--out PATH`. |
 | `tl capture` | Record live in the console (`Ctrl+C` to stop). Flags: `--no-clipboard`, `--no-agents`, `--no-hotkeys`, `--heartbeat SEC`. |
 | `tl tray` | Record live behind a tray icon. Same source flags. |

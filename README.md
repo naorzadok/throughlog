@@ -16,6 +16,8 @@ python -m throughlog.cli demo      # builds a synthetic day + opens the dashboar
 
 `tl demo` needs no config, no API key, and nothing captured: it generates a small, fully synthetic workday — two projects **plus a Claude Code AI-agent thread** — runs the real pipeline over it, and opens the local dashboard so you can see exactly what the tool produces. Then point it at your own work with `tl init` + `tl capture`.
 
+**Or just run `tl setup`** — one guided, approval-gated command that walks you through the whole thing (install the agent hooks, discover your projects, set an LLM key, turn on nightly synthesis + capture-at-logon, and launch the app), one opt-in step at a time. Installing via an AI agent? It reads [`AGENTS.md`](AGENTS.md) and asks you about each step. `tl setup --plan` prints what it would do and changes nothing.
+
 ### The app: `tl up`
 
 For everyday use there's a single command that **starts capture and opens the dashboard together** — the dashboard is the app:
@@ -73,6 +75,7 @@ sources/ (adapters) ─► privacy/gate ─► timeline (reconcile) ─► data/
 
 | Command | What it does |
 | --- | --- |
+| `tl setup` | **Guided, approval-gated onboarding**: hooks → projects → LLM key → nightly → capture-at-logon → launch, one opt-in step at a time. `--plan` previews it read-only; the flow an AI agent follows via [`AGENTS.md`](AGENTS.md). |
 | `tl up` | **The app**: start live capture *and* open the dashboard/control panel in one command. Settings, Ask, time-per-project chart, pause/synthesize controls — all in the browser. |
 | `tl demo` | Zero-config guided tour: generate a synthetic demo day (no key) and open the dashboard on it. The fastest way to see what the tool produces. |
 | `tl init [root]` | Auto-discover git repos under a root into a ready-to-edit `projects.json` (paths, git remotes, inferred keywords) — clone to first journal in under 2 minutes. |
