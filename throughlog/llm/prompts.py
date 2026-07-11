@@ -9,6 +9,15 @@ from __future__ import annotations
 
 from typing import Any
 
+
+def est_tokens(text: str) -> int:
+    """Rough token estimate (~4 chars/token) for English + code, with no tokenizer
+    dependency — keeps the synthesis core pure-stdlib. This is the same heuristic the
+    client's metering and ``sim/llm_bench`` use, so a budget expressed in these units maps
+    directly to what the metering reports. Used to size chunk-not-condense entry batches."""
+    return max(1, len(text or "") // 4)
+
+
 CATEGORIZE_SYSTEM = (
     "You are a deterministic work-activity categorizer. Assign each event to "
     "EXACTLY ONE project from the fixed list below, using the project id string, "
@@ -156,6 +165,54 @@ def build_entry_prompt(project: dict[str, Any], event_summaries: str, date_label
         "heading line — the date heading is added for you."
     )
     return ENTRY_SYSTEM, user
+
+
+# Phase 2, tier 2 (batched) — the multi-day variant. Same fine-grained contract as
+# ENTRY_SYSTEM, but ONE call covers several whole days, so the model must emit a
+# per-day `## YYYY-MM-DD` header before each day's entry (the single-day path has the
+# header added for it; here the caller splits the reply back apart on those headers).
+BATCHED_ENTRY_SYSTEM = (
+    "You write detailed entries for MULTIPLE days of an append-only, fine-grained "
+    "engineering journal for someone who was NOT present. Each day's entry is the "
+    "PERMANENT record, so preserve concrete specifics exactly: parameters changed and the "
+    "values tried, numeric and benchmark results, config keys, commands run, file and "
+    "function names, decisions and their rationale, and any open questions. Never round "
+    "away or omit a number. Ground every statement ONLY in the supplied events; never "
+    "invent work. Output ONE section per day: a line `## YYYY-MM-DD` (the exact date) "
+    "followed by that day's entry as plain markdown prose (bullets are fine for "
+    "value/result lists). Cover EVERY day listed, in order, and never merge two days "
+    "into one section."
+)
+
+
+def build_batched_entry_prompt(project: dict[str, Any], days_block: str,
+                               date_labels: list[str],
+                               extract_hints: list[str] | None = None) -> tuple[str, str]:
+    """Return (system, user) for a batch of one-or-more days of DETAILED entries in a
+    single call. ``days_block`` is the raw (un-condensed) event lines grouped under
+    ``## YYYY-MM-DD`` sub-headers; ``date_labels`` is the ordered list of dates the reply
+    must cover. The model re-emits a ``## YYYY-MM-DD`` header per day so the caller can
+    split the sections apart and merge them by date."""
+    name = project.get("name", project["id"])
+    hints = ""
+    if extract_hints:
+        hints = ("For THIS project, be especially sure to capture:\n"
+                 + "\n".join(f"- {h}" for h in extract_hints) + "\n\n")
+    user = (
+        f'PROJECT: "{name}"\n'
+        f"DAYS IN THIS BATCH ({len(date_labels)}): {', '.join(date_labels)}\n\n"
+        f"{hints}"
+        f"ACTIVITY, GROUPED BY DAY:\n{days_block}\n\n"
+        "=== TASK ===\n"
+        "Write one detailed entry PER DAY listed above. For each day, output the header "
+        "line `## YYYY-MM-DD` (its exact date) and then that day's entry — capturing the "
+        "concrete specifics (exact parameters, the values tried, numeric results, "
+        "decisions and why). Be thorough but legible; this is the record someone will "
+        "later query for details. Cover every day in the batch, in order; do not merge "
+        "days or skip a day that has activity. Plain markdown prose (bullets fine for "
+        "value/result lists)."
+    )
+    return BATCHED_ENTRY_SYSTEM, user
 
 
 # Phase 2, period rollup — the durable weekly/monthly retrospective. Reads the

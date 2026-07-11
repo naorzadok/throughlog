@@ -34,7 +34,8 @@ from throughlog.schema import (
 from throughlog.llm.client import LLMError
 from throughlog.llm.prompts import (
     DAILY_SEP, build_overview_prompt, build_chunk_summary_prompt,
-    build_exec_summary_prompt, build_entry_prompt, build_period_summary_prompt,
+    build_exec_summary_prompt, build_entry_prompt, build_batched_entry_prompt,
+    build_period_summary_prompt, est_tokens,
 )
 
 # A single project's event batch is condensed via the LLM before the overview
@@ -61,6 +62,15 @@ class SynthesisOptions:
     # instead of re-billing the LLM. The deterministic archive is still rewritten. Never
     # skips a project that changed, so it can't drop work the pipeline needs.
     skip_unchanged: bool = False
+    # F1/F2 — batched entry calls + chunk-not-condense input budget. All three default to
+    # the current per-day, condense-on-overflow behavior so library callers/tests stay
+    # byte-identical; config.example.json opts into the product defaults (adaptive/auto/7).
+    entry_batch: str = "day"        # "day" | "week" | "adaptive"
+    # Per-call INPUT budget in ~4-char tokens (est_tokens). 0 => legacy _activity_block
+    # condense path (byte-identical). >0 => chunk-not-condense: whole days are packed into
+    # units under this budget and each unit is one call with RAW event lines (no summary).
+    max_input_tokens: int = 0
+    max_batch_days: int = 7         # hard span cap (calendar days) per unit for week/adaptive
 
 
 DEFAULT_SYNTHESIS = SynthesisOptions()
@@ -365,7 +375,7 @@ def _activity_block(project: dict[str, Any], events: list[NormalizedEvent],
         system, user = build_chunk_summary_prompt(
             project, block, f"chunk {idx + 1}/{len(chunks)} of {range_label}")
         try:
-            narratives.append(client.chat(system, user, max_tokens=600).strip())
+            narratives.append(client.chat(system, user, max_tokens=600, label="chunk").strip())
             calls += 1
         except LLMError:
             narratives.append(block)            # resilient: keep the raw detail
@@ -424,7 +434,7 @@ def _entry_for_day(project: dict[str, Any], day_events: list[NormalizedEvent],
     block, calls = _activity_block(project, day_events, date_label, client)
     system, user = build_entry_prompt(project, block, date_label, _entry_hints(project))
     try:
-        raw = client.chat(system, user, max_tokens=options.entry_max_tokens)
+        raw = client.chat(system, user, max_tokens=options.entry_max_tokens, label="entry")
         entry = raw.strip()
         if not entry:                                   # empty reply -> deterministic fallback
             raise LLMError("empty entry reply")
@@ -436,11 +446,144 @@ def _entry_for_day(project: dict[str, Any], day_events: list[NormalizedEvent],
 
 
 # --------------------------------------------------------------------------- #
+# F1/F2 — whole-day budget packer + batched entry (chunk-not-condense)
+# --------------------------------------------------------------------------- #
+def _raw_day_block(events: list[NormalizedEvent]) -> str:
+    """Raw compact event summaries for a day — NO condensing. This is the chunk-not-condense
+    input: detail is preserved and, if too large for one call, split across calls at day
+    boundaries by the packer (never within a day)."""
+    return "\n\n".join(s for s in (summarize_event(e) for e in events) if s)
+
+
+def _span_days(first_key: str, last_key: str) -> int:
+    """Inclusive calendar span in days between two 'YYYYMMDD' keys (junk -> 1)."""
+    try:
+        a = date(int(first_key[:4]), int(first_key[4:6]), int(first_key[6:8]))
+        b = date(int(last_key[:4]), int(last_key[4:6]), int(last_key[6:8]))
+        return (b - a).days + 1
+    except (ValueError, TypeError):
+        return 1
+
+
+def pack_days_by_budget(dates: list[str], by_date: dict[str, list[NormalizedEvent]],
+                        options: SynthesisOptions) -> list[list[str]]:
+    """Group WHOLE days (date keys, ascending) into batched-call "units". A day is atomic —
+    the packer only ever cuts BETWEEN days, never within one:
+
+    * ``entry_batch='day'``      -> one unit per day.
+    * ``entry_batch='week'``     -> break at ISO-week boundaries, and also on budget/span.
+    * ``entry_batch='adaptive'`` -> greedy: flush the current unit when the NEXT day would
+      push it over ``max_input_tokens`` OR it already spans ``max_batch_days`` calendar
+      days — whichever first. A single day whose own rendered input exceeds the budget
+      still forms its own (over-budget) unit rather than being split mid-day.
+    """
+    if options.entry_batch == "day":
+        return [[d] for d in dates]
+
+    budget = options.max_input_tokens
+    span_cap = max(1, options.max_batch_days)
+    tok = {d: est_tokens(_raw_day_block(by_date[d])) for d in dates}
+
+    units: list[list[str]] = []
+    unit: list[str] = []
+    unit_tok = 0
+    for d in dates:
+        if unit:
+            over_budget = budget > 0 and (unit_tok + tok[d]) > budget
+            over_span = _span_days(unit[0], d) > span_cap
+            new_week = (options.entry_batch == "week"
+                        and _period_key(d, "week") != _period_key(unit[0], "week"))
+            if over_budget or over_span or new_week:
+                units.append(unit)
+                unit, unit_tok = [], 0
+        unit.append(d)
+        unit_tok += tok[d]
+    if unit:
+        units.append(unit)
+    return units
+
+
+def _split_batched_reply(text: str) -> dict[str, str]:
+    """Split a batched entry reply into ``{date_label: body}`` on its ``## YYYY-MM-DD``
+    headers. Anything before the first header (preamble) is dropped; a day the model
+    omitted simply won't appear (the caller falls back to that day's archive section)."""
+    import re
+    out: dict[str, str] = {}
+    parts = re.split(r"(?m)^\s{0,3}#{1,3}\s*(\d{4}-\d{2}-\d{2})\s*$", text or "")
+    for i in range(1, len(parts) - 1, 2):          # [preamble, date, body, date, body, ...]
+        label = parts[i].strip()
+        body = parts[i + 1].strip()
+        if label and body:
+            out[label] = body
+    return out
+
+
+def _entry_for_unit(project: dict[str, Any], unit: list[str],
+                    by_date: dict[str, list[NormalizedEvent]], client: Any,
+                    options: SynthesisOptions,
+                    ) -> tuple[dict[str, str], list[str], int, list[str]]:
+    """Detailed entries for one packer unit (one-or-more WHOLE days) in a single LLM call,
+    RAW (chunk-not-condense). Returns ``(sections_by_datekey, feeds, llm_calls, errors)``.
+    On LLMError/empty (or a day the model drops) that day falls back to its deterministic
+    archive section — never lost (C5)."""
+    labels = {d: _date_label(d) for d in unit}
+
+    if len(unit) == 1:                                     # single day — raw, no condense
+        d = unit[0]
+        block = _raw_day_block(by_date[d])
+        system, user = build_entry_prompt(project, block, labels[d], _entry_hints(project))
+        try:
+            entry = client.chat(system, user, max_tokens=options.entry_max_tokens,
+                                 label="entry").strip()
+            if not entry:
+                raise LLMError("empty entry reply")
+            return ({d: _entry_section_wrap(labels[d], entry)},
+                    [f"## {labels[d]}\n{entry}"], 1, [])
+        except LLMError as exc:
+            fb = build_archive_section(labels[d], by_date[d])
+            return ({d: fb}, [fb], 0, [f"entry LLM failed ({labels[d]}): {exc}"])
+
+    # Multi-day batch — one call emitting per-day sections.
+    days_block = "\n\n".join(f"## {labels[d]}\n{_raw_day_block(by_date[d])}" for d in unit)
+    date_labels = [labels[d] for d in unit]
+    system, user = build_batched_entry_prompt(
+        project, days_block, date_labels, _entry_hints(project))
+    max_tokens = min(8000, max(options.entry_max_tokens,
+                               options.entry_max_tokens * len(unit)))
+    try:
+        bodies = _split_batched_reply(
+            client.chat(system, user, max_tokens=max_tokens, label="entry"))
+        calls = 1
+    except LLMError as exc:
+        bodies, calls = {}, 0
+        prefix = f"batched entry LLM failed ({date_labels[0]}..{date_labels[-1]}): {exc}"
+    else:
+        prefix = ""
+
+    sections: dict[str, str] = {}
+    feeds: list[str] = []
+    errs: list[str] = [prefix] if prefix else []
+    for d in unit:
+        body = (bodies.get(labels[d]) or "").strip()
+        if body:
+            sections[d] = _entry_section_wrap(labels[d], body)
+            feeds.append(f"## {labels[d]}\n{body}")
+        else:                                              # dropped/failed -> archive fallback
+            fb = build_archive_section(labels[d], by_date[d])
+            sections[d] = fb
+            feeds.append(fb)
+            if not prefix:
+                errs.append(f"batched entry missing day {labels[d]}")
+    return sections, feeds, calls, errs
+
+
+# --------------------------------------------------------------------------- #
 # Per-project synthesis
 # --------------------------------------------------------------------------- #
 def synthesize_project(project: dict[str, Any], events: list[NormalizedEvent],
                        current_overview: str, *, today: str, client: Any,
-                       options: SynthesisOptions | None = None) -> ProjectJournal:
+                       options: SynthesisOptions | None = None,
+                       entry_only: set[str] | None = None) -> ProjectJournal:
     """Build the deterministic archive (always), the optional tier-2 detailed entries,
     and the LLM living overview (best-effort). On any LLM failure the overview is left
     unchanged and the archive is preserved; an entry-call failure degrades that day to
@@ -468,14 +611,28 @@ def synthesize_project(project: dict[str, Any], events: list[NormalizedEvent],
     entry_calls = 0
     entry_errs: list[str] = []
     if options.write_entries:
-        for d in dates:
-            section, feed, calls, err = _entry_for_day(
-                project, by_date[d], _date_label(d), client, options)
-            entry_calls += calls
-            entries_by_period.setdefault(_period_key(d, options.entry_period), []).append(section)
-            entry_feed.append(feed)
-            if err:
-                entry_errs.append(err)
+        entry_dates = [d for d in dates if entry_only is None or d in entry_only]
+        # Legacy per-day path (byte-identical): day-batching AND no input budget set.
+        if options.entry_batch == "day" and options.max_input_tokens <= 0:
+            for d in entry_dates:
+                section, feed, calls, err = _entry_for_day(
+                    project, by_date[d], _date_label(d), client, options)
+                entry_calls += calls
+                entries_by_period.setdefault(
+                    _period_key(d, options.entry_period), []).append(section)
+                entry_feed.append(feed)
+                if err:
+                    entry_errs.append(err)
+        else:                                              # F1/F2 — budget-packed batches
+            for unit in pack_days_by_budget(entry_dates, by_date, options):
+                sections, feeds, calls, errs = _entry_for_unit(
+                    project, unit, by_date, client, options)
+                entry_calls += calls
+                for d in unit:
+                    entries_by_period.setdefault(
+                        _period_key(d, options.entry_period), []).append(sections[d])
+                entry_feed.extend(feeds)
+                entry_errs.extend(errs)
 
     # Tier 3 — living overview. When entry-writing is on it ROLLS UP the (already-summarized)
     # entries and is told to stay high-level; otherwise it summarizes raw events.
@@ -489,7 +646,7 @@ def synthesize_project(project: dict[str, Any], events: list[NormalizedEvent],
 
     overview_md, daily_paragraph, error = current_overview, "", None
     try:
-        raw = client.chat(system, user, max_tokens=2000)
+        raw = client.chat(system, user, max_tokens=2000, label="overview")
         llm_calls += 1
         if DAILY_SEP in raw:
             head, tail = raw.split(DAILY_SEP, 1)
@@ -529,7 +686,7 @@ def synthesize_exec_summary(paragraphs: dict[str, str], day: str,
         return _fallback_exec_body(paragraphs), None
     system, user = build_exec_summary_prompt(paragraphs, day)
     try:
-        body = client.chat(system, user, max_tokens=1200)
+        body = client.chat(system, user, max_tokens=1200, label="exec")
     except LLMError as exc:
         return _fallback_exec_body(paragraphs), f"exec summary LLM failed: {exc}"
     return body.strip() + "\n", None
@@ -625,7 +782,7 @@ def summarize_period(journal_dir: str | Path, period_key: str, period: str,
         return _fallback_period_body(sections), None
     system, user = build_period_summary_prompt(_period_label(period_key, period), sections)
     try:
-        body = client.chat(system, user, max_tokens=1500)
+        body = client.chat(system, user, max_tokens=1500, label="period")
     except LLMError as exc:
         return (_fallback_period_body(sections),
                 f"period summary LLM failed ({period_key}): {exc}")
@@ -664,7 +821,7 @@ def _project_fingerprint(events: list[NormalizedEvent]) -> str:
     return h.hexdigest()
 
 
-def _load_synth_state(journal_dir: Path) -> dict[str, dict[str, str]]:
+def _load_synth_state(journal_dir: Path) -> dict[str, dict[str, Any]]:
     p = journal_dir / SYNTH_STATE_FILE
     try:
         data = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
@@ -673,7 +830,7 @@ def _load_synth_state(journal_dir: Path) -> dict[str, dict[str, str]]:
     return data if isinstance(data, dict) else {}
 
 
-def _save_synth_state(journal_dir: Path, state: dict[str, dict[str, str]]) -> None:
+def _save_synth_state(journal_dir: Path, state: dict[str, dict[str, Any]]) -> None:
     p = journal_dir / SYNTH_STATE_FILE
     tmp = p.with_suffix(p.suffix + ".tmp")
     try:
@@ -696,6 +853,28 @@ def _project_archive(events: list[NormalizedEvent]) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# F3 — per-project spread scheduling (which weekday a project's LLM tiers run)
+# --------------------------------------------------------------------------- #
+_WEEKDAYS = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+
+
+def project_synthesis_day(project: dict[str, Any]) -> str:
+    """The weekday a project's expensive LLM tiers run on: ``"daily"`` (default — every
+    run) or ``"mon".."sun"``. Read from per-project ``synthesis.day``; anything
+    unrecognized -> ``"daily"`` (so a typo never silently mutes a project)."""
+    day = str(((project or {}).get("synthesis") or {}).get("day", "daily")).strip().lower()
+    return day if day in _WEEKDAYS else "daily"
+
+
+def is_due(project: dict[str, Any], today: date) -> bool:
+    """Whether a project's LLM tiers should run today: ``"daily"`` -> always; a weekday ->
+    only when it matches. Pure. The deterministic archive is written regardless of this —
+    only the entry/overview calls are gated, so nothing is captured late."""
+    day = project_synthesis_day(project)
+    return day == "daily" or today.weekday() == _WEEKDAYS[day]
+
+
+# --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #
 def run(events: list[Any], projects: list[dict[str, Any]], *, journal_dir: str | Path,
@@ -712,6 +891,10 @@ def run(events: list[Any], projects: list[dict[str, Any]], *, journal_dir: str |
     """
     options = options or DEFAULT_SYNTHESIS
     today = today or date.today().isoformat()
+    try:
+        today_date = date.fromisoformat(today[:10])
+    except ValueError:
+        today_date = date.today()
     journal_dir = Path(journal_dir)
     journal_dir.mkdir(parents=True, exist_ok=True)
 
@@ -722,10 +905,17 @@ def run(events: list[Any], projects: list[dict[str, Any]], *, journal_dir: str |
     result = SynthesisRun(today=today)
     paragraphs: dict[str, str] = {}
 
-    # Opt-in re-run economy: reuse a project's LLM output when its events are unchanged.
+    # Persistent per-project state (journal/.synth_state.json) drives two opt-ins:
+    #   * skip_unchanged — reuse LLM output when a project's events are byte-identical;
+    #   * F3 scheduling  — a per-project weekday + a synth-days watermark so an assigned
+    #                      project only re-bills its NEW days, and only on its day.
+    # State is loaded/saved whenever either is active; both default off -> byte-identical.
     skip = options.skip_unchanged
-    prior_state = _load_synth_state(journal_dir) if skip else {}
-    new_state: dict[str, dict[str, str]] = dict(prior_state)
+    scheduling_on = any(project_synthesis_day(by_id.get(pid, {})) != "daily"
+                        for pid in groups)
+    use_state = skip or scheduling_on
+    prior_state = _load_synth_state(journal_dir) if use_state else {}
+    new_state: dict[str, dict[str, Any]] = dict(prior_state)
     any_changed = False
 
     for pid in sorted(groups):
@@ -736,11 +926,18 @@ def run(events: list[Any], projects: list[dict[str, Any]], *, journal_dir: str |
         overview_path = project_dir / "overview.md"
         archive_path = project_dir / "archive.md"
 
-        # Unchanged since last synthesis? Reuse the existing overview/entries (no LLM),
-        # still refreshing the deterministic archive so a deleted archive self-heals.
-        fp = _project_fingerprint(groups[pid]) if skip else ""
+        fp = _project_fingerprint(groups[pid]) if use_state else ""
         prior = prior_state.get(pid) or {}
-        if skip and prior.get("fingerprint") == fp and overview_path.exists():
+        scheduled = project_synthesis_day(project) != "daily"
+
+        # Reuse (no LLM): refresh the deterministic archive but keep the existing
+        # overview/entries when EITHER this project isn't due today (F3 scheduling) OR its
+        # events are unchanged (skip_unchanged). A staggered project's last output still
+        # feeds the global daily/exec, so it appears every day. Bootstraps on first
+        # sighting (no overview yet -> synthesize even if it's not the project's day).
+        not_due = scheduled and not is_due(project, today_date) and overview_path.exists()
+        unchanged = skip and prior.get("fingerprint") == fp and overview_path.exists()
+        if not_due or unchanged:
             archive_section = _project_archive(groups[pid])
             existing_archive = archive_path.read_text(encoding="utf-8") \
                 if archive_path.exists() else ""
@@ -749,6 +946,8 @@ def run(events: list[Any], projects: list[dict[str, Any]], *, journal_dir: str |
             daily = prior.get("daily", "")
             if daily:
                 paragraphs[pid] = daily
+            if use_state:
+                new_state[pid] = prior          # keep the fingerprint/synth_days watermark
             result.projects.append(ProjectJournal(
                 pid, len(groups[pid]), archive_section,
                 overview_path.read_text(encoding="utf-8"), daily, 0, None))
@@ -758,8 +957,16 @@ def run(events: list[Any], projects: list[dict[str, Any]], *, journal_dir: str |
         current = overview_path.read_text(encoding="utf-8") if overview_path.exists() \
             else overview_stub(name, today)
 
+        # A scheduled project entries only its NEW days (past the watermark), so its due-day
+        # run doesn't re-bill its whole history; an unscheduled 'daily' project entries all
+        # days (entry_only=None) -> byte-identical to before F3.
+        entry_only: set[str] | None = None
+        if scheduled:
+            done_days = set(prior.get("synth_days", []) or [])
+            entry_only = {_date_key(e.ts_wall) for e in groups[pid]} - done_days
+
         pd = synthesize_project(project, groups[pid], current, today=today,
-                                client=client, options=options)
+                                client=client, options=options, entry_only=entry_only)
 
         # Archive first (deterministic) — never lost to an LLM outage. Merged
         # idempotently so re-synthesizing a day replaces its section, not appends.
@@ -783,16 +990,25 @@ def run(events: list[Any], projects: list[dict[str, Any]], *, journal_dir: str |
 
         if pd.daily_paragraph:
             paragraphs[pid] = pd.daily_paragraph
-        if skip:
-            new_state[pid] = {"fingerprint": fp, "daily": pd.daily_paragraph}
+        if use_state:
+            entry: dict[str, Any] = {"fingerprint": fp, "daily": pd.daily_paragraph}
+            if scheduled:                       # advance the synth-days watermark
+                done_days = set(prior.get("synth_days", []) or [])
+                if entry_only:
+                    done_days |= entry_only
+                entry["synth_days"] = sorted(done_days)
+            elif prior.get("synth_days"):       # preserve a watermark if day was un-set
+                entry["synth_days"] = prior["synth_days"]
+            new_state[pid] = entry
         result.projects.append(pd)
 
-    if skip:
+    if use_state:
         _save_synth_state(journal_dir, new_state)
 
-    # Nothing changed this run: the daily/exec/period files on disk are still correct,
-    # so don't re-bill the model rebuilding them (and don't prepend a duplicate daily).
-    if skip and not any_changed:
+    # Nothing changed this run (all projects reused/not-due): the daily/exec/period files
+    # on disk are still correct, so don't re-bill the model rebuilding them (and don't
+    # prepend a duplicate daily).
+    if use_state and not any_changed:
         return result
 
     _prepend_daily(journal_dir, today, paragraphs)

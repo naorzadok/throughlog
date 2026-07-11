@@ -27,7 +27,10 @@
     "write_entries": true,
     "entry_max_tokens": 1500,
     "entry_period": "month",
-    "summary_cadence": "weekly"
+    "summary_cadence": "weekly",
+    "entry_batch": "adaptive",
+    "max_input_tokens": "auto",
+    "max_batch_days": 7
   },
   "init": {
     "llm_enrich": false
