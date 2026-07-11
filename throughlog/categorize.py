@@ -328,9 +328,15 @@ def _llm_categorize(batch: list[tuple[int, NormalizedEvent]],
     summaries = [event_summary(ev, idx) for idx, ev in batch]
     system, user = build_categorize_prompt(summaries, projects)
 
+    # Scale the output budget with batch size: each assignment is ~80 tokens of JSON, so a
+    # large ambiguous batch can truncate the array under the 1500 default -> unparseable ->
+    # the WHOLE residue drops to needs_review. Stays 1500 for typical small batches (wire
+    # byte-identical), grows for big ones, capped so it never runs away.
+    max_tokens = min(8000, max(1500, 80 * len(batch)))
+
     for attempt in range(parse_retries + 1):
         try:
-            raw = client.chat(system, user)
+            raw = client.chat(system, user, max_tokens=max_tokens, label="categorize")
         except LLMError:
             return {}                              # C5: transport gave up
         parsed = _parse_assignments(raw, valid_ids)

@@ -64,6 +64,12 @@ class LLMConfig:
     # default (the param is omitted entirely). Models that don't support reasoning
     # safely ignore it, so this needs no per-model capability detection.
     reasoning_effort: str = ""
+    # Per-run circuit-breaker (default OFF, byte-identical when off): once a model
+    # terminally rate-limits (429) this run, stop re-attempting it on later calls and go
+    # straight to the fallback — so the pacer isn't fighting a known-dead primary call
+    # after call. It only ever SKIPS a model already proven dead; it never refuses a call
+    # (if every model is dead it still tries the full chain).
+    circuit_breaker: bool = False
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "LLMConfig":
@@ -84,11 +90,58 @@ class LLMConfig:
             max_retries=int(llm.get("max_retries", 3)),
             max_requests_per_min=max(0, rpm),
             reasoning_effort=effort if effort in ("low", "medium", "high") else "",
+            circuit_breaker=bool(llm.get("circuit_breaker", False)),
         )
 
     def resolve_key(self) -> str:
         """Inline key wins (local, gitignored); else the named environment var."""
         return self.api_key or os.environ.get(self.api_key_env, "")
+
+
+# --------------------------------------------------------------------------- #
+# Call metering (observability only — never touches the wire or the pipeline)
+# --------------------------------------------------------------------------- #
+@dataclass
+class CallRecord:
+    """One logical ``chat()`` invocation: which call site, which model finally
+    answered, tokens (from the provider ``usage`` block), wall latency, physical
+    attempts across the model chain, whether the fallback model was used, and whether
+    it terminally failed. Purely descriptive — collected so the flow can be stress-tested
+    and optimized; it changes no bytes sent and no pipeline behavior."""
+    label: str = ""
+    model: str = ""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    latency_sec: float = 0.0
+    attempts: int = 0
+    fallback_used: bool = False
+    ok: bool = True
+    error: str = ""
+
+
+def _int(v: Any) -> int:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _is_rate_limit(msg: str) -> bool:
+    """True when a terminal LLMError message reflects provider throttling (HTTP 429),
+    the signal the circuit-breaker trips on. Matched on text because that is all a
+    terminal LLMError carries."""
+    low = msg.lower()
+    return "429" in low or "rate-limit" in low or "rate limit" in low
+
+
+def _usage_tuple(usage: dict[str, Any]) -> tuple[int, int, int]:
+    """(prompt, completion, total) from an OpenAI-style ``usage`` block; total falls
+    back to prompt+completion when the provider omits it."""
+    pt = _int((usage or {}).get("prompt_tokens"))
+    ct = _int((usage or {}).get("completion_tokens"))
+    tt = _int((usage or {}).get("total_tokens")) or (pt + ct)
+    return pt, ct, tt
 
 
 # --------------------------------------------------------------------------- #
@@ -132,36 +185,89 @@ class LLMClient:
 
     def __init__(self, config: LLMConfig, *,
                  opener: Callable[..., Any] | None = None,
-                 sleep: Callable[[float], None] = time.sleep) -> None:
+                 sleep: Callable[[float], None] = time.sleep,
+                 monotonic: Callable[[], float] = time.monotonic) -> None:
         self.cfg = config
         self._opener = opener or urllib.request.urlopen
         self._sleep = sleep
+        self._mono = monotonic
+        # Per-call metering log (observability only). Appended one row per chat();
+        # read via `metrics_summary()` or directly by the stress harness. Empty and
+        # inert unless something reads it — it never influences a request.
+        self.calls: list[CallRecord] = []
+        # Circuit-breaker state (only consulted when cfg.circuit_breaker): models that
+        # terminally rate-limited this run and should be skipped on later calls.
+        self._dead_models: set[str] = set()
         # Client-side pacing gate. Shares the injected `sleep`, so tests never really
         # wait; disabled (rpm<=0) it is a no-op, keeping the wire byte-identical.
         self._limiter = RateLimiter(config.max_requests_per_min, sleep=sleep)
 
     # -- public ------------------------------------------------------------- #
     def chat(self, system: str, user: str, *, temperature: float = 0.0,
-             max_tokens: int = 1500) -> str:
+             max_tokens: int = 1500, label: str = "") -> str:
         """Send system+user, return assistant text. Egress-scrubs the outbound
         prompt, retries transient failures with backoff per model, and — when the
         primary model is exhausted/unreachable (e.g. a rate-limited free model) —
         falls through to ``model_fallback`` before giving up. Raises LLMError only
-        once every configured model has failed, so Phase 1/2 degrade, never crash."""
+        once every configured model has failed, so Phase 1/2 degrade, never crash.
+
+        ``label`` names the call site (e.g. "categorize"/"entry"/"overview") for the
+        metering log only; it never reaches the wire."""
         sys_clean, _ = egress.egress_check(system)
         usr_clean, _ = egress.egress_check(user)
         messages = [
             {"role": "system", "content": sys_clean},
             {"role": "user", "content": usr_clean},
         ]
+        t0 = self._mono()
         last = ""
-        for model in self._model_chain():
+        attempts = 0
+        for model in self._try_chain():
             try:
-                return self._chat_one(model, messages, temperature, max_tokens)
+                text, usage, tries = self._chat_one(model, messages, temperature, max_tokens)
+                attempts += tries
+                pt, ct, tt = _usage_tuple(usage)
+                self.calls.append(CallRecord(
+                    label=label, model=model, prompt_tokens=pt, completion_tokens=ct,
+                    total_tokens=tt, latency_sec=round(self._mono() - t0, 4),
+                    attempts=attempts, fallback_used=model != self.cfg.model, ok=True))
+                return text
             except LLMError as exc:
+                attempts += max(1, self.cfg.max_retries)
                 last = f"{model}: {exc}"
+                if self.cfg.circuit_breaker and _is_rate_limit(str(exc)):
+                    self._dead_models.add(model)     # trip the breaker for the rest of the run
                 continue
+        chain = self._model_chain()
+        self.calls.append(CallRecord(
+            label=label, model=chain[0] if chain else "", latency_sec=round(self._mono() - t0, 4),
+            attempts=attempts, fallback_used=len(chain) > 1, ok=False, error=last))
         raise LLMError(last or "no model configured")
+
+    def _try_chain(self) -> list[str]:
+        """The models to attempt this call: the full chain, minus any the breaker has
+        proven dead this run — but never empty (if every model is dead we still try the
+        full chain, because refusing a call the pipeline needs is not allowed)."""
+        chain = self._model_chain()
+        if not self.cfg.circuit_breaker or not self._dead_models:
+            return chain
+        live = [m for m in chain if m not in self._dead_models]
+        return live or chain
+
+    def metrics_summary(self) -> dict[str, Any]:
+        """Aggregate the metering log for a run: call/degrade/fallback counts, token
+        totals, and summed wall latency. Read by the CLI and the stress harness."""
+        c = self.calls
+        return {
+            "calls": len(c),
+            "ok": sum(1 for r in c if r.ok),
+            "degraded": sum(1 for r in c if not r.ok),
+            "fallbacks": sum(1 for r in c if r.fallback_used),
+            "prompt_tokens": sum(r.prompt_tokens for r in c),
+            "completion_tokens": sum(r.completion_tokens for r in c),
+            "total_tokens": sum(r.total_tokens for r in c),
+            "latency_sec": round(sum(r.latency_sec for r in c), 3),
+        }
 
     def _model_chain(self) -> list[str]:
         """The models to try, in order: the primary then the (distinct) fallback."""
@@ -173,9 +279,10 @@ class LLMClient:
 
     # -- internals ---------------------------------------------------------- #
     def _chat_one(self, model: str, messages: list[dict[str, str]],
-                  temperature: float, max_tokens: int) -> str:
-        """One model: POST with capped-backoff retries on transient failures.
-        Raises LLMError once retries are exhausted (the caller may then fall back)."""
+                  temperature: float, max_tokens: int) -> tuple[str, dict[str, Any], int]:
+        """One model: POST with capped-backoff retries on transient failures. Returns
+        (text, usage, attempts_made) on success; raises LLMError once retries are
+        exhausted (the caller may then fall back)."""
         payload: dict[str, Any] = {
             "model": model,
             "temperature": temperature,
@@ -189,7 +296,8 @@ class LLMClient:
         last = ""
         for attempt in range(1, max(1, self.cfg.max_retries) + 1):
             try:
-                return self._post(body)
+                text, usage = self._post(body)
+                return text, usage, attempt
             except _Retryable as exc:
                 last = str(exc)
                 if attempt < self.cfg.max_retries:
@@ -197,7 +305,7 @@ class LLMClient:
                     continue
                 raise LLMError(f"exhausted {self.cfg.max_retries} retries: {last}") from exc
         raise LLMError(last or "no attempt made")
-    def _post(self, body: bytes) -> str:
+    def _post(self, body: bytes) -> tuple[str, dict[str, Any]]:
         key = self.cfg.resolve_key()
         if not key:
             raise LLMError(
@@ -236,7 +344,8 @@ class LLMClient:
             data = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise _Retryable(f"non-JSON response: {raw[:200]}") from exc
-        return _extract_content(data)
+        usage = data.get("usage") if isinstance(data, dict) else None
+        return _extract_content(data), (usage if isinstance(usage, dict) else {})
 
 
 def from_config(config: dict[str, Any], *, opener: Callable[..., Any] | None = None,

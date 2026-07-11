@@ -39,7 +39,11 @@ ALLOWED_PRIVACY = frozenset({"capture_diffs", "clipboard_preview", "diff_max_lin
                              "diff_max_bytes", "clipboard_preview_chars",
                              "allowlist_extra", "ignore_globs"})
 ALLOWED_SYNTHESIS = frozenset({"write_entries", "entry_period", "summary_cadence",
-                               "entry_max_tokens", "skip_unchanged"})
+                               "entry_max_tokens", "skip_unchanged",
+                               "entry_batch", "max_input_tokens", "max_batch_days"})
+# Weekdays a project may be scheduled on (plus "daily" = every run), for the per-project
+# synthesis-day picker. Enforced by update_project_synthesis so a bad value can't land.
+SYNTHESIS_DAYS = frozenset({"daily", "mon", "tue", "wed", "thu", "fri", "sat", "sun"})
 ALLOWED_INIT = frozenset({"llm_enrich"})
 
 
@@ -241,6 +245,34 @@ def add_project(folder: str | Path, *, projects_path: str | Path | None = None,
         entry = onboard.enrich_project(entry, onboard.build_repo_digest(p), client)
     _atomic_write_json(path, {"projects": existing + [entry]})
     return entry
+
+
+def update_project_synthesis(project_id: str, day: str, *,
+                             projects_path: str | Path | None = None) -> dict[str, Any]:
+    """Set one project's synthesis weekday (``synthesis.day``) in ``projects.json``,
+    preserving every other field on that project (and every other project). ``day`` must
+    be in :data:`SYNTHESIS_DAYS`; ``"daily"`` clears the schedule (the project synthesizes
+    every run, the default). Raises ``ValueError`` on an unknown id or an invalid day —
+    the UI surfaces the message verbatim, same as :func:`add_project`."""
+    day = str(day or "daily").strip().lower()
+    if day not in SYNTHESIS_DAYS:
+        raise ValueError(f"Invalid synthesis day: {day}")
+    path = Path(projects_path) if projects_path else cfgmod.PROJECTS_PATH
+    projects = _read_projects(path)
+    for proj in projects:
+        if proj.get("id") == project_id:
+            syn = dict(proj.get("synthesis") or {})
+            if day == "daily":
+                syn.pop("day", None)
+            else:
+                syn["day"] = day
+            if syn:
+                proj["synthesis"] = syn
+            else:
+                proj.pop("synthesis", None)
+            _atomic_write_json(path, {"projects": projects})
+            return proj
+    raise ValueError(f"Unknown project: {project_id}")
 
 
 # --------------------------------------------------------------------------- #

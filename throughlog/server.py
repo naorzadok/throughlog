@@ -776,6 +776,14 @@ def settings_html(cfg: dict[str, Any], projects: list[dict[str, Any]], *,
     )
 
     # -- Journal & summaries --
+    budget_presets = [("auto", "Auto — match my model (recommended)"),
+                      ("6000", "Balanced — ~6k tokens (free models)"),
+                      ("16000", "Large — ~16k tokens (capable models)"),
+                      ("200000", "Maximum — feed everything raw (big-context models)"),
+                      ("0", "Legacy — condense very large days")]
+    budget_cur = str(syn.get("max_input_tokens", "auto")).strip().lower()
+    if budget_cur not in {v for v, _ in budget_presets}:
+        budget_cur = "auto"
     parts.append(
         '<section class="card"><h2 class="sech" style="margin-top:0">Journal &amp; '
         'summaries</h2>'
@@ -785,10 +793,22 @@ def settings_html(cfg: dict[str, Any], projects: list[dict[str, Any]], *,
         '<form method="post" action="/settings/synthesis">' + _hidden_token(token) +
         _checkbox("write_entries", "Write the detailed entries",
                   bool(syn.get("write_entries", True))) +
-        _select("entry_period", "Journal file grouping",
-                str(syn.get("entry_period", "month")).lower(),
-                [("month", "Monthly  (entries/YYYY-MM.md)"),
-                 ("week", "Weekly  (entries/YYYY-Www.md)")]) +
+        _select("entry_batch", "How often to call the LLM for entries",
+                str(syn.get("entry_batch", "day")).lower(),
+                [("adaptive", "Smart — batch quiet days, split busy ones (recommended)"),
+                 ("week", "Once a week per project (fewest calls)"),
+                 ("day", "Every day (most calls)")]) +
+        _select("max_input_tokens", "Detail packed into each LLM call", budget_cur,
+                budget_presets) +
+        f'<span class="fld"><label for="max_batch_days">Never wait longer than (days) '
+        f'<span class="empty" style="font-weight:400">(caps how long smart/weekly '
+        f'batching may hold a day before it is summarized)</span></label>'
+        f'<input type="number" min="1" id="max_batch_days" name="max_batch_days" '
+        f'value="{_t(syn.get("max_batch_days", 7))}"></span>'
+        + _select("entry_period", "Journal file grouping",
+                  str(syn.get("entry_period", "month")).lower(),
+                  [("month", "Monthly  (entries/YYYY-MM.md)"),
+                   ("week", "Weekly  (entries/YYYY-Www.md)")]) +
         _select("summary_cadence", "Period summary",
                 str(syn.get("summary_cadence", "off")).lower(),
                 [("off", "Off"), ("weekly", "Weekly"), ("monthly", "Monthly")]) +
@@ -848,20 +868,38 @@ def settings_html(cfg: dict[str, Any], projects: list[dict[str, Any]], *,
     )
 
     # -- Projects --
+    _dow = [("daily", "Every day"), ("mon", "Mon"), ("tue", "Tue"), ("wed", "Wed"),
+            ("thu", "Thu"), ("fri", "Fri"), ("sat", "Sat"), ("sun", "Sun")]
+
+    def _day_picker(pid: str, cur: str) -> str:
+        cur = cur if cur in {v for v, _ in _dow} else "daily"
+        opts = "".join(f'<option value="{v}"{" selected" if v == cur else ""}>{lbl}</option>'
+                       for v, lbl in _dow)
+        pid_q = html.escape(pid, quote=True)
+        return (f'<form method="post" action="/settings/project-synthesis" '
+                f'style="display:flex;gap:6px;align-items:center;margin:0">'
+                + _hidden_token(token) +
+                f'<input type="hidden" name="project_id" value="{pid_q}">'
+                f'<label for="day_{pid_q}" class="meta">Synthesize on</label>'
+                f'<select id="day_{pid_q}" name="day">{opts}</select>'
+                f'<button class="btn">Save</button></form>')
+
     rows = []
     for p in projects:
         sigs = p.get("signals", {}) or {}
         path0 = (sigs.get("paths") or [""])[0]
+        cur_day = str((p.get("synthesis") or {}).get("day", "daily")).strip().lower()
         rows.append(
             f'<div class="proj"><div><b>{html.escape(p.get("name", p.get("id", "")))}</b>'
             f'<div class="meta">{html.escape(path0)}</div></div>'
-            f'<span class="meta">{html.escape(p.get("status", "active"))}</span></div>')
+            f'{_day_picker(p.get("id", ""), cur_day)}</div>')
     proj_list = "".join(rows) or '<p class="empty">No projects yet.</p>'
     parts.append(
         '<section class="card"><h2 class="sech" style="margin-top:0">Projects</h2>'
         '<p class="empty" style="font-size:13px">A project\'s folder is what makes it '
-        'observable. Adding one widens the privacy allowlist — you\'ll confirm first.'
-        '</p>' + proj_list +
+        'observable. Adding one widens the privacy allowlist — you\'ll confirm first. '
+        '"Synthesize on" spreads projects\' LLM calls across the week — the deterministic '
+        'archive still updates every night.</p>' + proj_list +
         '<form method="post" action="/settings/init" style="margin-top:14px">'
         + _hidden_token(token) +
         _checkbox("llm_enrich", "Use the LLM to fill in keywords &amp; description for new "
@@ -1295,14 +1333,29 @@ def build_handler(journal_dir: Path, data_dir_path: Path, registry: dict[str, st
                 elif path == "/settings/synthesis":
                     period = field("entry_period").strip().lower()
                     cadence = field("summary_cadence").strip().lower()
+                    batch = field("entry_batch").strip().lower()
+                    budget = field("max_input_tokens").strip().lower()
+                    days = field("max_batch_days").strip()
                     patch = {"write_entries": "write_entries" in form,
                              "skip_unchanged": "skip_unchanged" in form}
                     if period in ("month", "week"):
                         patch["entry_period"] = period
                     if cadence in ("off", "weekly", "monthly"):
                         patch["summary_cadence"] = cadence
+                    if batch in ("day", "week", "adaptive"):
+                        patch["entry_batch"] = batch
+                    if budget == "auto":
+                        patch["max_input_tokens"] = "auto"
+                    elif budget.isdigit():
+                        patch["max_input_tokens"] = int(budget)
+                    if days.isdigit() and int(days) >= 1:
+                        patch["max_batch_days"] = int(days)
                     appconfig.update_synthesis(patch)
                     self._redirect("/settings?saved=journal")
+                elif path == "/settings/project-synthesis":
+                    appconfig.update_project_synthesis(
+                        field("project_id").strip(), field("day").strip().lower())
+                    self._redirect("/settings?saved=schedule")
                 elif path == "/settings/init":
                     appconfig.update_init({"llm_enrich": "llm_enrich" in form})
                     self._redirect("/settings?saved=enrichment")

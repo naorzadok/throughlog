@@ -78,11 +78,51 @@ def data_dir(config: dict[str, Any] | None = None) -> Path:
     return BASE_DIR / cfg.get("paths", {}).get("data_dir", "data")
 
 
+def budget_for_model(model: str) -> int:
+    """Resolve the ``"auto"`` per-call input budget from the configured model's tier.
+    Chunking is a fidelity tax paid only to protect a WEAK model — a strong long-context
+    model should be fed raw detail — so the budget scales with model capability:
+
+    * free tier (``:free``, the default Nemotron/Qwen) -> 6000 (conservative);
+    * a known frontier long-context family -> ~200000 (effectively "never chunk");
+    * anything else (a capable paid/local model) -> 16000.
+    """
+    m = (model or "").lower()
+    if ":free" in m:
+        return 6000
+    frontier = ("claude", "sonnet", "opus", "haiku", "gpt-4", "gpt-5", "gpt4", "o1",
+                "o3", "o4", "gemini")
+    if any(k in m for k in frontier):
+        return 200000
+    return 16000
+
+
+def _resolve_input_budget(raw: Any, config: dict[str, Any]) -> int:
+    """Map the ``max_input_tokens`` config value to an int budget: ``"auto"`` -> tier
+    (via ``budget_for_model`` on ``llm.model``); an int/number -> itself; junk -> 0
+    (the legacy condense path, byte-identical)."""
+    if isinstance(raw, str):
+        if raw.strip().lower() == "auto":
+            return budget_for_model((config.get("llm", {}) or {}).get("model", ""))
+        try:
+            return int(raw.strip())
+        except ValueError:
+            return 0
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return 0
+
+
 def synthesis_options_from(config: dict[str, Any] | None = None):
     """Build the Phase-2 SynthesisOptions from `config.synthesis.*`. The PRODUCT default
     is journaling ON (the tier-2 detailed journal is valuable and the calls are cheap on
     free models), so a missing/legacy `synthesis` block still enables it — distinct from
-    the SynthesisOptions() library default, which is OFF for test/caller byte-identity."""
+    the SynthesisOptions() library default, which is OFF for test/caller byte-identity.
+
+    The batching knobs (`entry_batch`/`max_input_tokens`/`max_batch_days`) default to the
+    OLD per-day, condense-on-overflow behavior when absent, so a legacy config.json upgrades
+    without a surprise; a fresh `config.example.json` opts into adaptive/auto/7."""
     from throughlog.synthesize import SynthesisOptions
 
     if config is None:
@@ -93,12 +133,16 @@ def synthesis_options_from(config: dict[str, Any] | None = None):
     syn = config.get("synthesis", {}) or {}
     period = str(syn.get("entry_period", "month")).strip().lower()
     cadence = str(syn.get("summary_cadence", "off")).strip().lower()
+    batch = str(syn.get("entry_batch", "day")).strip().lower()
     return SynthesisOptions(
         write_entries=bool(syn.get("write_entries", True)),
         entry_max_tokens=int(syn.get("entry_max_tokens", 1500)),
         entry_period=period if period in ("month", "week") else "month",
         summary_cadence=cadence if cadence in ("off", "weekly", "monthly") else "off",
         skip_unchanged=bool(syn.get("skip_unchanged", False)),
+        entry_batch=batch if batch in ("day", "week", "adaptive") else "day",
+        max_input_tokens=_resolve_input_budget(syn.get("max_input_tokens", 0), config),
+        max_batch_days=max(1, int(syn.get("max_batch_days", 7) or 7)),
     )
 
 

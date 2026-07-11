@@ -133,10 +133,13 @@ def cmd_synthesize(args: argparse.Namespace) -> int:
     if args.skip_unchanged is not None:         # --skip-unchanged / --no-skip-unchanged
         options = replace(options, skip_unchanged=args.skip_unchanged)
 
+    batch = options.entry_batch
+    if batch != "day" and options.max_input_tokens > 0:
+        batch += f"~{options.max_input_tokens}tok/≤{options.max_batch_days}d"
     print(f"[tl] {len(events)} events from {len(sources)} file(s) "
           f"-> journal: {journal_dir}  (llm={'on' if client else 'off'}, "
           f"entries={'on' if options.write_entries else 'off'}/{options.entry_period}, "
-          f"summary={options.summary_cadence}, "
+          f"batch={batch}, summary={options.summary_cadence}, "
           f"skip_unchanged={'on' if options.skip_unchanged else 'off'})")
     res = run_pipeline(events, projects, journal_dir=journal_dir,
                        client=client, today=today, options=options)
@@ -153,6 +156,13 @@ def cmd_synthesize(args: argparse.Namespace) -> int:
         print(f"[tl] summary: {res.summary_error}")
     if res.exec_error:
         print(f"[tl] exec summary: {res.exec_error}")
+    if client is not None:                          # per-run LLM metering (tokens + latency)
+        m = client.metrics_summary()
+        print(f"[tl] llm: {m['calls']} call(s) "
+              f"({m['degraded']} degraded, {m['fallbacks']} via fallback), "
+              f"{m['total_tokens']} tokens "
+              f"({m['prompt_tokens']} in / {m['completion_tokens']} out), "
+              f"{m['latency_sec']}s")
     print(f"[tl] done ({res.today}).")
     return 0
 

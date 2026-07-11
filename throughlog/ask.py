@@ -195,7 +195,7 @@ def answer(question: str, passages: list[Passage], client: Any, *,
     system, user = prompts.build_ask_prompt(
         question, [(p.source, p.text) for p in selected])
     try:
-        text = client.chat(system, user, max_tokens=800).strip()
+        text = client.chat(system, user, max_tokens=800, label="ask").strip()
         return Answer(text or _deterministic_answer(selected), sources, used_llm=True)
     except LLMError as exc:
         return Answer(_deterministic_answer(selected), sources,
