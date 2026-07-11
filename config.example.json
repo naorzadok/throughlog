@@ -11,8 +11,8 @@
     "max_retries": 3,
     "max_requests_per_min": 18,
     "circuit_breaker": false,
-    "local_endpoint": "http://localhost:11434",
-    "local_model": "llama3.1:8b"
+    "local_endpoint": "http://127.0.0.1:11434",
+    "local_model": "nemotron-3-nano-4b"
   },
   "privacy": {
     "allowlist_extra": [],
