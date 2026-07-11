@@ -61,15 +61,18 @@ def _resolve_sources(args: argparse.Namespace, cfg: dict[str, Any]) -> list[Path
 # LLM client
 # --------------------------------------------------------------------------- #
 def build_client(cfg: dict[str, Any], *, enable: bool):
-    """Return an LLMClient, or None when disabled or no key is resolvable.
-    A missing key is a soft failure — the pipeline still runs deterministically."""
+    """Return an LLMClient, or None when disabled or no key is resolvable (and the
+    endpoint is not local). A missing key is a soft failure — the pipeline still runs
+    deterministically."""
     if not enable:
         return None
     from throughlog.llm.client import LLMConfig, LLMClient
     llm_cfg = LLMConfig.from_config(cfg)
-    if not llm_cfg.resolve_key():
+    # A local endpoint needs no key; only the cloud path requires one.
+    if not llm_cfg.resolve_key() and not llm_cfg.is_local:
         print("[tl] no API key resolved — running deterministic-only "
-              "(set llm.api_key in config.json or $OPENROUTER_API_KEY).")
+              "(set llm.api_key in config.json or $OPENROUTER_API_KEY, or use a local "
+              "model — see `tl local`).")
         return None
     return LLMClient(llm_cfg)
 
@@ -617,6 +620,91 @@ def cmd_hook(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def cmd_local(args: argparse.Namespace) -> int:
+    """Download & serve a local GGUF model — the no-key, no-egress backend. Composes the pure
+    helpers in ``throughlog.llm.local``; the optional dep is only needed to *serve*."""
+    from throughlog.config import load_config
+    from throughlog.llm import local as L
+
+    if args.action == "list":
+        reg = L.load_registry()
+        print(f"Curated local models (default: {reg.get('default','')}, quant "
+              f"{reg.get('default_quant', L.DEFAULT_QUANT)}):\n")
+        for m in reg.get("models", []):
+            star = "  ★ recommended" if m.get("recommended") else ""
+            print(f"  {m['id']}{star}")
+            print(f"      {m.get('name','')} — ~{m.get('approx_gb','?')} GB — {m.get('license','')}")
+            if m.get("note"):
+                print(f"      {m['note']}")
+        print("\nAny GGUF also works:  tl local pull hf.co/<org>/<repo>[:quant]")
+        return 0
+
+    if args.action == "status":
+        d = L.models_dir()
+        print(f"models dir : {d}")
+        inst = L.installed_models(d)
+        for r in inst:
+            print(f"  downloaded: {r['name']}  ({r['size_bytes'] / 1e9:.2f} GB)")
+        if not inst:
+            print("  (none downloaded — `tl local pull <alias>`)")
+        oll = L.ollama_models()
+        print(f"ollama     : {'running' if oll else 'not detected'}")
+        for r in oll:
+            print(f"  ollama: {r['name']}")
+        llama = "installed" if L.have_llama_cpp() else 'not installed (pip install "throughlog[local]")'
+        print(f"llama-cpp  : {llama}")
+        llm = (load_config() or {}).get("llm", {})
+        print(f"config     : provider={llm.get('provider')}  "
+              f"local_model={llm.get('local_model','')}  "
+              f"local_endpoint={llm.get('local_endpoint','')}")
+        return 0
+
+    if args.action == "pull":
+        def _prog(done: int, total: int) -> None:
+            gb = done / 1e9
+            tg = total / 1e9 if total else 0
+            pct = (done / total * 100) if total else 0
+            print(f"\r  {gb:.2f}/{tg:.2f} GB ({pct:4.1f}%)", end="", flush=True)
+        try:
+            path = L.pull(args.model, quant=args.quant, progress=_prog)
+        except L.LocalError as exc:
+            print(f"\n[tl] {exc}")
+            return 1
+        print(f"\n[tl] downloaded: {path}")
+        if args.use:
+            L.configure(endpoint=L.endpoint_url(host=args.host, port=args.port),
+                        model=L.DEFAULT_ALIAS)
+            print(f"[tl] config now points at the local endpoint. Start it with:\n"
+                  f"     tl local serve \"{path}\" --port {args.port}")
+        else:
+            print(f"[tl] next: tl local serve \"{path}\" --use")
+        return 0
+
+    if args.action == "serve":
+        model = args.model
+        if not model:
+            inst = L.installed_models()
+            if not inst:
+                print("[tl] no model downloaded — run `tl local pull <alias>` first.")
+                return 1
+            model = inst[0]["file"]
+        endpoint = L.endpoint_url(host=args.host, port=args.port)
+        if args.use:
+            L.configure(endpoint=endpoint, model=L.DEFAULT_ALIAS)
+            print(f"[tl] config set to provider=local at {endpoint}/v1 (model id: {L.DEFAULT_ALIAS}).")
+        try:
+            print(f"[tl] serving {model} at {endpoint}/v1 — Ctrl+C to stop.")
+            proc = L.serve(model, host=args.host, port=args.port)
+            proc.wait()
+            return proc.returncode or 0
+        except KeyboardInterrupt:
+            return 0
+        except L.LocalError as exc:
+            print(f"[tl] {exc}")
+            return 1
+    return 0
+
+
 def cmd_schedule(args: argparse.Namespace) -> int:
     """Register / remove the nightly-synthesis Windows scheduled task."""
     from throughlog import deploy
@@ -1014,6 +1102,21 @@ def build_parser() -> argparse.ArgumentParser:
                     help="user settings (~/.claude, ~/.cursor) or this repo's "
                          "project settings (default: user)")
     hk.set_defaults(func=cmd_hook)
+
+    lo = sub.add_parser(
+        "local",
+        help="download & serve a small local model (no API key, no egress)")
+    lo.add_argument("action", choices=["pull", "serve", "status", "list"])
+    lo.add_argument("model", nargs="?", default="",
+                    help="alias (see `tl local list`) or hf.co/<org>/<repo>[:quant]; "
+                         "for `serve`, an optional path to a downloaded .gguf")
+    lo.add_argument("--quant", default=None,
+                    help="quant to fetch, e.g. Q4_K_M (default) / Q5_K_M / Q8_0")
+    lo.add_argument("--host", default="127.0.0.1", help="bind host for `serve` (default loopback)")
+    lo.add_argument("--port", type=int, default=8080, help="port for `serve` (default 8080)")
+    lo.add_argument("--use", action="store_true",
+                    help="also point config.json at this local model (provider=local)")
+    lo.set_defaults(func=cmd_local)
 
     st = sub.add_parser(
         "setup",

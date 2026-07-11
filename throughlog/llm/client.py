@@ -22,8 +22,9 @@ import json
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from throughlog.privacy import egress
@@ -70,17 +71,31 @@ class LLMConfig:
     # after call. It only ever SKIPS a model already proven dead; it never refuses a call
     # (if every model is dead it still tries the full chain).
     circuit_breaker: bool = False
+    # Local backend (a fully in-machine OpenAI-compatible server: Ollama, llama.cpp,
+    # llama-cpp-python, LM Studio, …). Only consulted when provider == "local", where the
+    # *primary* target becomes {local_endpoint (normalized to /v1), local_model}, no API
+    # key is required, and pacing is disabled. `model_fallback` (+ a resolvable cloud key)
+    # then acts as an optional CLOUD fallback — that is the "hybrid" mode. Defaults keep
+    # the wire byte-identical for every non-local provider.
+    local_endpoint: str = "http://localhost:11434"
+    local_model: str = ""
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "LLMConfig":
         llm = (config or {}).get("llm", {}) or {}
+        provider = str(llm.get("provider", "openrouter") or "openrouter")
         effort = str(llm.get("reasoning_effort", "") or "").strip().lower()
         try:
             rpm = int(llm.get("max_requests_per_min", 0) or 0)
         except (TypeError, ValueError):
             rpm = 0
+        # A local endpoint has no shared per-minute quota, so client-side pacing is
+        # pointless there — disable it so a copied config's cloud default (18/min) does
+        # not needlessly slow local inference.
+        if provider == "local":
+            rpm = 0
         return cls(
-            provider=llm.get("provider", "openrouter"),
+            provider=provider,
             base_url=str(llm.get("base_url", DEFAULT_BASE_URL)).rstrip("/"),
             model=llm.get("model", ""),
             model_fallback=str(llm.get("model_fallback", "") or "").strip(),
@@ -91,11 +106,22 @@ class LLMConfig:
             max_requests_per_min=max(0, rpm),
             reasoning_effort=effort if effort in ("low", "medium", "high") else "",
             circuit_breaker=bool(llm.get("circuit_breaker", False)),
+            local_endpoint=str(llm.get("local_endpoint", "http://localhost:11434")
+                               or "http://localhost:11434"),
+            local_model=str(llm.get("local_model", "") or "").strip(),
         )
 
     def resolve_key(self) -> str:
         """Inline key wins (local, gitignored); else the named environment var."""
         return self.api_key or os.environ.get(self.api_key_env, "")
+
+    @property
+    def is_local(self) -> bool:
+        """True when the PRIMARY target is an in-machine endpoint — provider is explicitly
+        'local', or the configured base_url points at loopback. Such a target is built
+        keyless and without the OpenRouter attribution headers. (A hybrid's cloud fallback
+        is judged separately, per target.)"""
+        return self.provider == "local" or _loopback_host(self.base_url)
 
 
 # --------------------------------------------------------------------------- #
@@ -174,6 +200,41 @@ def _extract_content(data: dict[str, Any]) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Request targets (endpoint routing) — one per model in the try chain
+# --------------------------------------------------------------------------- #
+def _loopback_host(url: str) -> bool:
+    """True when ``url`` points at this machine (localhost / 127.0.0.1 / ::1 / *.localhost).
+    A loopback target is treated as local: keyless-OK, no OpenRouter headers."""
+    try:
+        host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return False
+    return host in ("localhost", "127.0.0.1", "0.0.0.0", "::1") or host.endswith(".localhost")
+
+
+def _ensure_v1(endpoint: str) -> str:
+    """Normalize a local endpoint to its OpenAI-compatible ``/v1`` root (Ollama, llama.cpp,
+    LM Studio all serve there), so a bare ``http://localhost:11434`` works out of the box."""
+    base = (endpoint or "").rstrip("/")
+    if not base:
+        return base
+    return base if base.endswith("/v1") else base + "/v1"
+
+
+@dataclass
+class _Target:
+    """One endpoint the try chain may hit: its base_url, the model to request, the provider
+    (for attribution-header gating), the resolved key, and whether it is in-machine (keyless-
+    OK). The chain is a *list* of these so a local primary and a cloud fallback can live on
+    different servers — the whole of "hybrid"."""
+    base_url: str
+    model: str
+    provider: str
+    key: str
+    is_local: bool
+
+
+# --------------------------------------------------------------------------- #
 # Client
 # --------------------------------------------------------------------------- #
 class LLMClient:
@@ -222,37 +283,58 @@ class LLMClient:
         t0 = self._mono()
         last = ""
         attempts = 0
-        for model in self._try_chain():
+        targets = self._targets()
+        primary = targets[0].model if targets else ""
+        for target in self._live_targets(targets):
             try:
-                text, usage, tries = self._chat_one(model, messages, temperature, max_tokens)
+                text, usage, tries = self._chat_one(target, messages, temperature, max_tokens)
                 attempts += tries
                 pt, ct, tt = _usage_tuple(usage)
                 self.calls.append(CallRecord(
-                    label=label, model=model, prompt_tokens=pt, completion_tokens=ct,
+                    label=label, model=target.model, prompt_tokens=pt, completion_tokens=ct,
                     total_tokens=tt, latency_sec=round(self._mono() - t0, 4),
-                    attempts=attempts, fallback_used=model != self.cfg.model, ok=True))
+                    attempts=attempts, fallback_used=target.model != primary, ok=True))
                 return text
             except LLMError as exc:
                 attempts += max(1, self.cfg.max_retries)
-                last = f"{model}: {exc}"
+                last = f"{target.model}: {exc}"
                 if self.cfg.circuit_breaker and _is_rate_limit(str(exc)):
-                    self._dead_models.add(model)     # trip the breaker for the rest of the run
+                    self._dead_models.add(target.model)   # trip the breaker for the rest of the run
                 continue
-        chain = self._model_chain()
         self.calls.append(CallRecord(
-            label=label, model=chain[0] if chain else "", latency_sec=round(self._mono() - t0, 4),
-            attempts=attempts, fallback_used=len(chain) > 1, ok=False, error=last))
+            label=label, model=primary, latency_sec=round(self._mono() - t0, 4),
+            attempts=attempts, fallback_used=len(targets) > 1, ok=False, error=last))
         raise LLMError(last or "no model configured")
 
-    def _try_chain(self) -> list[str]:
-        """The models to attempt this call: the full chain, minus any the breaker has
-        proven dead this run — but never empty (if every model is dead we still try the
-        full chain, because refusing a call the pipeline needs is not allowed)."""
-        chain = self._model_chain()
+    def _live_targets(self, targets: list[_Target]) -> list[_Target]:
+        """The targets to attempt this call: the full chain, minus any whose model the
+        breaker has proven dead this run — but never empty (if every one is dead we still
+        try the full chain, because refusing a call the pipeline needs is not allowed)."""
         if not self.cfg.circuit_breaker or not self._dead_models:
-            return chain
-        live = [m for m in chain if m not in self._dead_models]
-        return live or chain
+            return targets
+        live = [t for t in targets if t.model not in self._dead_models]
+        return live or targets
+
+    def _targets(self) -> list[_Target]:
+        """The ordered endpoints to try. For a cloud/OpenAI-compatible provider this is one
+        target per model in ``_model_chain()``, all on the one ``base_url``. For
+        ``provider == "local"`` the primary is the in-machine {local_endpoint, local_model}
+        target (keyless), optionally followed by a CLOUD fallback ({base_url, model_fallback}
+        with a resolved key) — that second target is what makes "hybrid" cross two servers."""
+        cfg = self.cfg
+        if cfg.provider == "local":
+            targets = [_Target(_ensure_v1(cfg.local_endpoint), cfg.local_model,
+                               "local", "", True)]
+            cloud_key = cfg.resolve_key()
+            if cfg.model_fallback and cloud_key and cfg.base_url:
+                prov = "openrouter" if "openrouter.ai" in cfg.base_url else "openai"
+                targets.append(_Target(cfg.base_url, cfg.model_fallback, prov, cloud_key,
+                                       _loopback_host(cfg.base_url)))
+            return [t for t in targets if t.model]
+        key = cfg.resolve_key()
+        local = _loopback_host(cfg.base_url)
+        return [_Target(cfg.base_url, m, cfg.provider, key, local)
+                for m in self._model_chain()]
 
     def metrics_summary(self) -> dict[str, Any]:
         """Aggregate the metering log for a run: call/degrade/fallback counts, token
@@ -277,14 +359,25 @@ class LLMClient:
             chain.append(fb)
         return [m for m in chain if m]
 
+    def probe(self, target: _Target, *, max_tokens: int = 16) -> str:
+        """One-shot ping to a single target with no fallback — used by the connectivity
+        smoke so it can report exactly which link in the chain works."""
+        sys_clean, _ = egress.egress_check(
+            "You are a terse echo. Reply with exactly one word.")
+        usr_clean, _ = egress.egress_check("Reply with the single word: pong")
+        messages = [{"role": "system", "content": sys_clean},
+                    {"role": "user", "content": usr_clean}]
+        text, _usage, _tries = self._chat_one(target, messages, 0.0, max_tokens)
+        return text
+
     # -- internals ---------------------------------------------------------- #
-    def _chat_one(self, model: str, messages: list[dict[str, str]],
+    def _chat_one(self, target: _Target, messages: list[dict[str, str]],
                   temperature: float, max_tokens: int) -> tuple[str, dict[str, Any], int]:
-        """One model: POST with capped-backoff retries on transient failures. Returns
+        """One target: POST with capped-backoff retries on transient failures. Returns
         (text, usage, attempts_made) on success; raises LLMError once retries are
-        exhausted (the caller may then fall back)."""
+        exhausted (the caller may then fall back to the next target)."""
         payload: dict[str, Any] = {
-            "model": model,
+            "model": target.model,
             "temperature": temperature,
             "max_tokens": max_tokens,
             "messages": messages,
@@ -296,7 +389,7 @@ class LLMClient:
         last = ""
         for attempt in range(1, max(1, self.cfg.max_retries) + 1):
             try:
-                text, usage = self._post(body)
+                text, usage = self._post(body, target)
                 return text, usage, attempt
             except _Retryable as exc:
                 last = str(exc)
@@ -305,21 +398,25 @@ class LLMClient:
                     continue
                 raise LLMError(f"exhausted {self.cfg.max_retries} retries: {last}") from exc
         raise LLMError(last or "no attempt made")
-    def _post(self, body: bytes) -> tuple[str, dict[str, Any]]:
-        key = self.cfg.resolve_key()
+
+    def _post(self, body: bytes, target: _Target) -> tuple[str, dict[str, Any]]:
+        key = target.key
         if not key:
-            raise LLMError(
-                f"no API key — set ${self.cfg.api_key_env} or llm.api_key in config.json")
+            if target.is_local:
+                key = "sk-local"      # local servers ignore Authorization; send a placeholder
+            else:
+                raise LLMError(
+                    f"no API key — set ${self.cfg.api_key_env} or llm.api_key in config.json")
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        }
+        if target.provider == "openrouter":       # attribution — OpenRouter only, dropped for local
+            headers["HTTP-Referer"] = "https://github.com/naorzadok/throughlog"
+            headers["X-Title"] = "throughlog"
         req = urllib.request.Request(
-            f"{self.cfg.base_url}/chat/completions",
-            data=body, method="POST",
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-                # OpenRouter attribution (optional, harmless elsewhere).
-                "HTTP-Referer": "https://github.com/naorzadok/throughlog",
-                "X-Title": "throughlog",
-            },
+            f"{target.base_url}/chat/completions",
+            data=body, method="POST", headers=headers,
         )
         # Pace before we actually send — this is the per-request layer, so retries
         # and fallback-model requests are throttled too (they all count against the
@@ -384,6 +481,10 @@ def _classify_error(msg: str) -> tuple[str, int]:
                 SMOKE_HARD)
     if "http 404" in low:
         return ("CONFIG ERROR (404) - check llm.base_url and the model id.", SMOKE_HARD)
+    if "network" in low or "urlopen" in low or "refused" in low or "timed out" in low:
+        return ("UNREACHABLE - could not connect. If this is a local model, is the server "
+                "running (Ollama, or `tl local serve`)? Otherwise check llm.base_url.",
+                SMOKE_HARD)
     return (f"FAILED - {msg}", SMOKE_HARD)
 
 
@@ -412,30 +513,32 @@ def _smoke(argv: list[str] | None = None) -> int:
     ap.parse_args(argv)
 
     cfg = LLMConfig.from_config(load_config())
-    chain = LLMClient(cfg)._model_chain()
+    client = LLMClient(cfg)
+    targets = client._targets()
     print(f"provider={cfg.provider}  base_url={cfg.base_url}"
           f"  reasoning={cfg.reasoning_effort or 'default'}")
-    print(f"model chain : {' -> '.join(chain) if chain else '(none configured)'}")
-    print(f"api key     : {'present' if cfg.resolve_key() else 'MISSING'}")
+    chain_desc = " -> ".join(f"{t.model}@{t.base_url}" for t in targets) or "(none configured)"
+    print(f"model chain : {chain_desc}")
+    key_state = ("present" if cfg.resolve_key()
+                 else ("not required (local endpoint)" if cfg.is_local else "MISSING"))
+    print(f"api key     : {key_state}")
 
-    if not chain:
-        print("\nRESULT: FAILED — no model configured (set llm.model in config.json)")
+    if not targets:
+        print("\nRESULT: FAILED — no model configured (set llm.model / llm.local_model "
+              "in config.json)")
         return SMOKE_HARD
 
-    # Probe each model on its own (no fallback) so the report says exactly which
+    # Probe each target on its own (no fallback) so the report says exactly which
     # link in the chain works — e.g. primary rate-limited but fallback healthy.
     codes: list[int] = []
-    for model in chain:
-        probe = replace(cfg, model=model, model_fallback="")
+    for target in targets:
         try:
-            out = LLMClient(probe).chat(
-                "You are a terse echo. Reply with exactly one word.",
-                "Reply with the single word: pong")
-            print(f"\n  {model}\n    OK  <- {out.strip()[:80]!r}")
+            out = client.probe(target)
+            print(f"\n  {target.model} @ {target.base_url}\n    OK  <- {out.strip()[:80]!r}")
             codes.append(SMOKE_OK)
         except LLMError as exc:
             verdict, code = _classify_error(str(exc))
-            print(f"\n  {model}\n    {verdict}")
+            print(f"\n  {target.model} @ {target.base_url}\n    {verdict}")
             codes.append(code)
 
     rc = _overall_exit(codes)

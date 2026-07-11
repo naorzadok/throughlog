@@ -24,6 +24,7 @@ import json
 import os
 import re
 import secrets
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -693,10 +694,169 @@ def answer_html(ans: Any) -> str:
     return f'<div class="answer">{note}{body}{src_html}</div>'
 
 
+# --------------------------------------------------------------------------- #
+# Local model management (Settings): pure detection + a single-flight downloader
+# --------------------------------------------------------------------------- #
+_BUNDLED_ENDPOINT = "http://127.0.0.1:8080"   # where `tl local serve` binds by default
+_pull_lock = threading.Lock()
+
+
+def _pull_status_path(models_dir: Path) -> Path:
+    return models_dir / ".pull_status.json"
+
+
+def read_pull_status(models_dir: Path) -> dict[str, Any] | None:
+    """The current/last background download's progress, or None. Written by the pull thread,
+    read by the settings page so the browser can watch it. Never raises."""
+    try:
+        return json.loads(_pull_status_path(models_dir).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _write_pull_status(models_dir: Path, data: dict[str, Any]) -> None:
+    try:
+        models_dir.mkdir(parents=True, exist_ok=True)
+        _pull_status_path(models_dir).write_text(json.dumps(data), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def start_background_pull(ref: str, *, quant: str | None, models_dir: Path) -> bool:
+    """Download a GGUF in a daemon thread, tracking progress in ``.pull_status.json`` so the
+    synchronous dashboard stays responsive. Single-flight: returns False if one is already
+    running. The thread never raises out (a failure is recorded as ``state=error``)."""
+    from throughlog.llm import local as L
+    if not _pull_lock.acquire(blocking=False):
+        return False
+    _write_pull_status(models_dir, {"ref": ref, "state": "downloading", "done": 0, "total": 0})
+
+    def _run() -> None:
+        try:
+            def prog(done: int, total: int) -> None:
+                _write_pull_status(models_dir, {"ref": ref, "state": "downloading",
+                                                "done": done, "total": total})
+            path = L.pull(ref, quant=quant, dest_dir=models_dir, progress=prog)
+            _write_pull_status(models_dir, {"ref": ref, "state": "done",
+                                            "file": str(path), "name": Path(path).name})
+        except Exception as exc:                     # never crash the daemon thread
+            _write_pull_status(models_dir, {"ref": ref, "state": "error", "error": str(exc)})
+        finally:
+            _pull_lock.release()
+
+    threading.Thread(target=_run, daemon=True).start()
+    return True
+
+
+def local_model_choices(cfg: dict[str, Any], models_dir: Path, *,
+                        opener: Any = None) -> list[dict[str, Any]]:
+    """The local models the user can pick from — downloaded GGUFs (served via `tl local serve`)
+    and any a running Ollama exposes. Pure over the filesystem + an injected opener, so it is
+    unit-testable with no network. Each option's value encodes both the endpoint and the model
+    id, so choosing it is unambiguous."""
+    from throughlog.llm import local as L
+    llm = cfg.get("llm") or {}
+    is_local = str(llm.get("provider", "")).lower() == "local"
+    cur_model = str(llm.get("local_model", ""))
+    cur_endpoint = str(llm.get("local_endpoint", "")).rstrip("/")
+    out: list[dict[str, Any]] = []
+    for r in L.installed_models(models_dir):
+        active = is_local and cur_model == L.DEFAULT_ALIAS and "8080" in cur_endpoint
+        out.append({"value": f"bundled::{r['file']}", "kind": "bundled",
+                    "endpoint": _BUNDLED_ENDPOINT, "model": L.DEFAULT_ALIAS, "file": r["file"],
+                    "label": f"{r['name']} — {r['size_bytes'] / 1e9:.1f} GB (downloaded)",
+                    "active": active})
+    for r in L.ollama_models(opener=opener):
+        active = is_local and cur_model == r["name"] and "11434" in cur_endpoint
+        out.append({"value": f"ollama::{r['name']}", "kind": "ollama",
+                    "endpoint": L.DEFAULT_OLLAMA, "model": r["name"],
+                    "label": f"{r['name']} — Ollama", "active": active})
+    return out
+
+
+def local_settings_card(cfg: dict[str, Any], token: str, *,
+                        models_dir: Path | None = None, opener: Any = None) -> str:
+    """The "Local model" settings card: pick a detected model, download a new one (background,
+    with progress), test the connection. Composes the pure detectors above + the shared form
+    helpers; config writes go through the same guarded ``appconfig.update_llm`` chokepoint."""
+    from throughlog.llm import local as L
+    md = models_dir or L.models_dir()
+    llm = cfg.get("llm") or {}
+    is_local = str(llm.get("provider", "")).lower() == "local"
+    choices = local_model_choices(cfg, md, opener=opener)
+    reg = L.load_registry()
+    status = read_pull_status(md)
+
+    parts = ['<section class="card"><h2 class="sech" style="margin-top:0">Local model '
+             '<span class="empty" style="font-weight:400">(no key — nothing leaves your '
+             'machine)</span></h2>'
+             '<p class="empty" style="font-size:13px">Run the model on this computer instead '
+             'of the cloud. Easiest: install <b>Ollama</b> and its models appear below. Or '
+             'download a small model here (served by <code>tl local serve</code>).</p>']
+
+    cur = (f' → <code>{html.escape(str(llm.get("local_model", "")))}</code> at '
+           f'<code>{html.escape(str(llm.get("local_endpoint", "")))}</code>' if is_local else "")
+    parts.append(f'<p class="meta">Backend now: '
+                 f'<code>{html.escape(str(llm.get("provider", "openrouter")))}</code>{cur}</p>')
+
+    if status and status.get("state") == "downloading":
+        done, total = int(status.get("done", 0)), int(status.get("total", 0))
+        pct = (done / total * 100) if total else 0
+        parts.append(
+            f'<p class="note">Downloading <code>{html.escape(str(status.get("ref", "")))}</code> — '
+            f'{done / 1e9:.2f}/{(total / 1e9 if total else 0):.2f} GB ({pct:.0f}%)… '
+            'this page refreshes automatically.'
+            '<script>setTimeout(function(){location.href="/settings";},2500);</script></p>')
+    elif status and status.get("state") == "error":
+        parts.append(f'<p class="note">Last download failed: '
+                     f'{html.escape(str(status.get("error", "")))}</p>')
+    elif status and status.get("state") == "done":
+        parts.append(f'<p class="ok">Downloaded <code>{html.escape(str(status.get("name", "")))}'
+                     '</code> — select it below and click <b>Use</b>.</p>')
+
+    if choices:
+        opts = "".join(
+            f'<option value="{html.escape(c["value"], quote=True)}"'
+            f'{" selected" if c["active"] else ""}>'
+            f'{html.escape(c["label"])}{"  ✓ active" if c["active"] else ""}</option>'
+            for c in choices)
+        parts.append(
+            '<form method="post" action="/settings/local/use">' + _hidden_token(token) +
+            '<span class="fld"><label for="choice">Detected models</label>'
+            f'<select id="choice" name="choice">{opts}</select></span>'
+            '<button class="btn primary">Use selected</button> '
+            '<button class="btn" formaction="/settings/local/test">Test connection</button> '
+            '<button class="btn" formaction="/settings/local/serve">Start local server</button>'
+            '</form>')
+    else:
+        parts.append('<p class="empty" style="font-size:13px">No local models detected yet — '
+                     'download one below, or install Ollama and pull a model.</p>')
+
+    mopts = "".join(
+        f'<option value="{html.escape(m["id"], quote=True)}">'
+        f'{html.escape(m.get("name", m["id"]))} — ~{m.get("approx_gb", "?")} GB — '
+        f'{html.escape(str(m.get("license", "")))}</option>'
+        for m in reg.get("models", []))
+    parts.append(
+        '<hr><form method="post" action="/settings/local/pull">' + _hidden_token(token) +
+        '<span class="fld"><label for="curated">Download a curated model</label>'
+        f'<select id="curated" name="curated">{mopts}</select></span>'
+        '<span class="fld"><label for="hf_ref">…or any Hugging Face GGUF (optional)</label>'
+        '<input type="text" id="hf_ref" name="hf_ref" autocomplete="off" '
+        'placeholder="hf.co/&lt;org&gt;/&lt;repo&gt;[:Q4_K_M]"></span>'
+        '<button class="btn">Download</button>'
+        '<span class="hint">Saves to ~/.throughlog/models and downloads in the background.</span>'
+        '</form>'
+        '<p class="empty" style="font-size:12px">Serving a downloaded model needs '
+        '<code>pip install "throughlog[local]"</code>; Ollama models need no serve step.</p>'
+        '</section>')
+    return "".join(parts)
+
+
 def settings_html(cfg: dict[str, Any], projects: list[dict[str, Any]], *,
                   token: str, key_set: bool = False,
                   automation: dict[str, Any] | None = None, saved: str = "",
-                  added: str = "", error: str = "") -> str:
+                  added: str = "", error: str = "", note: str = "") -> str:
     """The settings screen: LLM, privacy toggles, automation (autostart + nightly
     synthesis), and a merge-only project adder. The API key is write-only — never
     rendered back, only a "set" hint."""
@@ -724,6 +884,8 @@ def settings_html(cfg: dict[str, Any], projects: list[dict[str, Any]], *,
     banner = ""
     if error:
         banner = f'<p class="note">{html.escape(error)}</p>'
+    elif note:
+        banner = f'<p class="ok">{html.escape(note)}</p>'
     elif saved:
         banner = f'<p class="ok">Saved {html.escape(saved)} settings.</p>'
     elif added:
@@ -735,11 +897,22 @@ def settings_html(cfg: dict[str, Any], projects: list[dict[str, Any]], *,
 
     parts = ["<h1>Settings</h1>", banner]
 
-    # -- LLM --
+    # -- LLM (cloud / advanced) --
+    prov_cur = str(llm.get("provider", "openrouter")).lower()
     parts.append(
         '<section class="card"><h2 class="sech" style="margin-top:0">Language model'
-        '</h2><form method="post" action="/settings/llm">' + _hidden_token(token) +
-        f'<span class="fld"><label for="api_key">API key</label>'
+        '</h2>'
+        '<p class="empty" style="font-size:13px">Pick <b>Cloud</b> for a hosted model (needs a '
+        'key) or <b>Local</b> to run on this machine (set up in the next card — no key, no '
+        'egress). For a <b>hybrid</b>, choose Local and set a cloud <i>fallback model</i> + key '
+        'below.</p>'
+        '<form method="post" action="/settings/llm">' + _hidden_token(token) +
+        _select("provider", "Backend",
+                "local" if prov_cur == "local" else "cloud",
+                [("cloud", "Cloud — OpenRouter / OpenAI-compatible"),
+                 ("local", "Local — a model on this machine")]) +
+        f'<span class="fld"><label for="api_key">API key '
+        f'<span class="empty" style="font-weight:400">(cloud / fallback only)</span></label>'
         f'<input type="password" id="api_key" name="api_key" autocomplete="off" '
         f'placeholder="{html.escape(key_hint, quote=True)}"></span>'
         f'<span class="fld"><label for="model">Model</label>'
@@ -747,15 +920,23 @@ def settings_html(cfg: dict[str, Any], projects: list[dict[str, Any]], *,
         f'<span class="fld"><label for="base_url">Base URL</label>'
         f'<input type="text" id="base_url" name="base_url" '
         f'value="{_t(llm.get("base_url"))}"></span>'
+        f'<span class="fld"><label for="model_fallback">Cloud fallback model '
+        f'<span class="empty" style="font-weight:400">(optional; enables hybrid when local is '
+        f'primary)</span></label>'
+        f'<input type="text" id="model_fallback" name="model_fallback" '
+        f'value="{_t(llm.get("model_fallback"))}"></span>'
         f'<span class="fld"><label for="max_requests_per_min">Max requests / min '
         f'<span class="empty" style="font-weight:400">(0 = no limit; paces calls to '
-        f'stay under a free-tier rate — never drops one)</span></label>'
+        f'stay under a free-tier rate — never drops one; ignored for local)</span></label>'
         f'<input type="number" min="0" id="max_requests_per_min" '
         f'name="max_requests_per_min" '
         f'value="{_t(llm.get("max_requests_per_min", 0))}"></span>'
         + _reasoning_select(llm.get("reasoning_effort")) +
         '<button class="btn primary">Save model settings</button></form></section>'
     )
+
+    # -- Local model (download / pick / test) --
+    parts.append(local_settings_card(cfg, token))
 
     # -- Privacy --
     parts.append(
@@ -1069,7 +1250,7 @@ def _llm_client(cfg: dict[str, Any]) -> Any:
     try:
         from throughlog.llm.client import LLMConfig, LLMClient
         c = LLMConfig.from_config(cfg)
-        if c.resolve_key():
+        if c.resolve_key() or c.is_local:     # a local endpoint needs no key
             return LLMClient(c)
     except Exception:
         pass
@@ -1208,14 +1389,14 @@ def build_handler(journal_dir: Path, data_dir_path: Path, registry: dict[str, st
             self._page("Overview", body, active="overview")
 
         def _render_settings(self, *, saved: str = "", added: str = "",
-                             error: str = "", code: int = 200) -> None:
+                             error: str = "", note: str = "", code: int = 200) -> None:
             from throughlog import appconfig
             cfg = self._cfg()
             self._page("Settings",
                        settings_html(cfg, _safe_load_projects(), token=token,
                                      key_set=appconfig.key_is_set(cfg),
                                      automation=automation_state(),
-                                     saved=saved, added=added, error=error),
+                                     saved=saved, added=added, error=error, note=note),
                        active="settings", code=code)
 
         # -- GET ------------------------------------------------------------ #
@@ -1307,7 +1488,14 @@ def build_handler(journal_dir: Path, data_dir_path: Path, registry: dict[str, st
                     patch: dict[str, Any] = {
                         "model": field("model").strip() or None,
                         "base_url": field("base_url").strip() or None,
+                        "model_fallback": field("model_fallback").strip(),
                     }
+                    mode = field("provider").strip().lower()
+                    if mode == "local":
+                        patch["provider"] = "local"
+                    elif mode == "cloud":          # leave a non-openrouter cloud provider intact
+                        cur = str((self._cfg().get("llm") or {}).get("provider", "")).lower()
+                        patch["provider"] = "openrouter" if cur in ("", "local") else cur
                     effort = field("reasoning_effort").strip().lower()
                     if effort in ("", "low", "medium", "high"):
                         patch["reasoning_effort"] = effort     # "" clears -> default
@@ -1319,6 +1507,15 @@ def build_handler(journal_dir: Path, data_dir_path: Path, registry: dict[str, st
                         patch["api_key"] = key
                     appconfig.update_llm(patch)
                     self._redirect("/settings?saved=model")
+                elif path == "/settings/local/use":
+                    self._handle_local_use(field("choice").strip())
+                elif path == "/settings/local/pull":
+                    ref = field("hf_ref").strip() or field("curated").strip()
+                    self._handle_local_pull(ref, field("quant").strip() or None)
+                elif path == "/settings/local/test":
+                    self._handle_local_test()
+                elif path == "/settings/local/serve":
+                    self._handle_local_serve()
                 elif path == "/settings/privacy":
                     patch = {
                         "capture_diffs": "capture_diffs" in form,
@@ -1396,6 +1593,69 @@ def build_handler(journal_dir: Path, data_dir_path: Path, registry: dict[str, st
                 self._render_settings(error=str(exc), code=400)
             except Exception as exc:
                 self._page("Error", _error_card(str(exc)), code=500)
+
+        # -- POST helpers (local model) ------------------------------------- #
+        def _handle_local_use(self, choice: str) -> None:
+            """Point config at a detected model. ``choice`` is ``kind::ref`` from the picker;
+            we translate it to provider=local + endpoint + model via the guarded chokepoint."""
+            from throughlog.llm import local as L
+            kind, _, ref = choice.partition("::")
+            if kind == "ollama" and ref:
+                L.configure(endpoint=L.DEFAULT_OLLAMA, model=ref)
+            elif kind == "bundled" and ref:
+                L.configure(endpoint=_BUNDLED_ENDPOINT, model=L.DEFAULT_ALIAS)
+            else:
+                self._render_settings(error="Pick a model to use.", code=400)
+                return
+            self._redirect("/settings?saved=model")
+
+        def _handle_local_pull(self, ref: str, quant: str | None) -> None:
+            if not ref:
+                self._render_settings(error="Choose a curated model or enter a "
+                                            "Hugging Face reference.", code=400)
+                return
+            from throughlog.llm import local as L
+            started = start_background_pull(ref, quant=quant, models_dir=L.models_dir())
+            if not started:
+                self._render_settings(error="A download is already running — let it finish.",
+                                      code=409)
+                return
+            self._redirect("/settings")
+
+        def _handle_local_test(self) -> None:
+            from throughlog.llm.client import (LLMConfig, LLMClient, LLMError,
+                                               _classify_error)
+            c = LLMConfig.from_config(self._cfg())
+            client = LLMClient(c)
+            targets = client._targets()
+            if not targets:
+                self._render_settings(error="No model configured to test.", code=400)
+                return
+            try:
+                out = client.probe(targets[0])
+                self._render_settings(
+                    note=f"Local model reachable ✓ — replied {out.strip()[:40]!r}")
+            except LLMError as exc:
+                verdict, _ = _classify_error(str(exc))
+                self._render_settings(error=f"Test failed — {verdict}", code=200)
+
+        def _handle_local_serve(self) -> None:
+            """Best-effort launch of the bundled server over the first downloaded model, so a
+            non-technical user can close the loop without a terminal."""
+            from throughlog.llm import local as L
+            inst = L.installed_models()
+            if not inst:
+                self._render_settings(error="No downloaded model to serve — download one first "
+                                            "(Ollama models need no serve step).", code=400)
+                return
+            try:
+                L.serve(inst[0]["file"], detach=True)
+                L.configure(endpoint=_BUNDLED_ENDPOINT, model=L.DEFAULT_ALIAS)
+                self._render_settings(
+                    note=f"Starting local server for {Path(inst[0]['file']).name} at "
+                         f"{_BUNDLED_ENDPOINT}/v1 — give it a moment, then Test connection.")
+            except L.LocalError as exc:
+                self._render_settings(error=str(exc), code=400)
 
         # -- POST helpers --------------------------------------------------- #
         def _handle_ask(self, question: str) -> None:

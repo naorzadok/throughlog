@@ -1,0 +1,44 @@
+{
+  "_comment": "Curated local-model registry (DATA, not code) for `tl local pull <alias>` and the dashboard model picker. Adding/curating a model is a data edit, not a release. This is only a convenience shortlist — ANY GGUF works via the escape hatch `tl local pull hf.co/<org>/<repo>:<quant>` (or --repo/--file), so models released after this file was written need no code change. Sizes are approximate for the default quant. Only vendor-official, verified GGUF repos are listed here.",
+  "default": "nemotron-3-nano-4b",
+  "default_quant": "Q4_K_M",
+  "models": [
+    {
+      "id": "nemotron-3-nano-4b",
+      "name": "NVIDIA Nemotron-3 Nano 4B",
+      "hf_repo": "nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF",
+      "gguf_pattern": "*Q4_K_M*.gguf",
+      "approx_gb": 2.5,
+      "license": "NVIDIA Open Model License",
+      "recommended": true,
+      "note": "Top pick: same family as the cloud default (nemotron-3-super-120b), so one prompt style spans local primary + cloud fallback (ideal hybrid). Explicitly post-trained on structured-output + instruction-following, which targets the JSON/overview calls. Needs a recent llama.cpp for the Nemotron architecture."
+    },
+    {
+      "id": "qwen2.5-3b",
+      "name": "Qwen2.5 3B Instruct",
+      "hf_repo": "Qwen/Qwen2.5-3B-Instruct-GGUF",
+      "gguf_pattern": "*q4_k_m*.gguf",
+      "approx_gb": 2.0,
+      "license": "Qwen Research License (non-Apache)",
+      "note": "Strong JSON/instruction-following for its size; runs comfortably on CPU. Note the 3B is under Qwen's own license, not Apache-2.0 (the 7B/1.5B are Apache)."
+    },
+    {
+      "id": "qwen2.5-1.5b",
+      "name": "Qwen2.5 1.5B Instruct",
+      "hf_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+      "gguf_pattern": "*q4_k_m*.gguf",
+      "approx_gb": 1.1,
+      "license": "Apache-2.0",
+      "note": "Smallest/fastest permissive option for weak CPUs. Weaker on long structured markdown; the deterministic fallbacks cover the misses."
+    },
+    {
+      "id": "qwen2.5-7b",
+      "name": "Qwen2.5 7B Instruct",
+      "hf_repo": "Qwen/Qwen2.5-7B-Instruct-GGUF",
+      "gguf_pattern": "*q4_k_m*.gguf",
+      "approx_gb": 4.7,
+      "license": "Apache-2.0",
+      "note": "Best quality/size on a laptop with RAM to spare; permissive license. May ship as split GGUF parts."
+    }
+  ]
+}

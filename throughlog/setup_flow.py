@@ -129,7 +129,10 @@ class Step:
 
 _KEY_WHY = ("Enables the narrative journal — the overview, detailed entries, and the "
             "executive summary. Without a key ThroughLog still runs fully "
-            "deterministically (archive + timeline); it just skips the prose.")
+            "deterministically (archive + timeline); it just skips the prose. "
+            "Prefer to keep everything on-machine? Skip the key and run a local model "
+            "instead (`tl local pull nemotron-3-nano-4b` + `tl local serve`, or point it "
+            "at Ollama) — no key, nothing leaves the box. See Settings → Local model.")
 
 
 def plan_steps(state: SetupState) -> list[Step]:

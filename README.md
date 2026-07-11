@@ -136,6 +136,25 @@ On Windows, **`autostart`** installs a per-user **Startup-folder launcher** (no 
 
 Copy `config.example.json` to `config.json` (gitignored) and set your key — either inline in `llm.api_key`, or via the `OPENROUTER_API_KEY` environment variable (the inline key wins if both are set). Get a free key at [openrouter.ai](https://openrouter.ai/). The default model `nvidia/nemotron-3-super-120b-a12b:free` is free-tier. Optionally set `llm.reasoning_effort` (`low`/`medium`/`high`; empty = provider default) to turn up thinking on models that support it — it's sent as OpenRouter's unified `reasoning` param and safely ignored by models that don't.
 
+### Run it fully locally (no key, no egress)
+
+The LLM client is OpenAI-compatible, so it can point at a model running **on your own machine** — closing the last egress path (nothing leaves the box) and removing keys and rate limits. Two on-ramps, both configured from the dashboard **Settings → Local model** card (pick a detected model, download one, test the connection) or the CLI:
+
+```bash
+# Option A — Ollama (easiest): install Ollama, then
+ollama pull qwen2.5:3b
+# then set llm.provider="local", llm.local_endpoint="http://127.0.0.1:11434", llm.local_model="qwen2.5:3b"
+
+# Option B — bundled, self-contained (no extra app)
+pip install -e ".[local]"                       # llama-cpp-python + a stdlib GGUF downloader
+tl local list                                   # the curated shortlist
+tl local pull nemotron-3-nano-4b                # ~2.5 GB into ~/.throughlog/models
+tl local serve --use                            # serve it + point config at it (Ctrl+C to stop)
+python -m throughlog.llm.client --smoke         # confirm the local endpoint answers
+```
+
+Any GGUF works, including models released later: `tl local pull hf.co/<org>/<repo>[:Q4_K_M]`. Recommended small model: **Nemotron-3-Nano-4B** — the same family as the cloud default, so it behaves the same locally and in a **hybrid** setup (local primary + cloud fallback: set `provider="local"` *and* a `model_fallback` + key). On a CPU-only laptop, expect slower nightly runs; a weak local model that fumbles JSON/prose never crashes — the pipeline degrades deterministically exactly as it does for the cloud.
+
 ### Verify
 
 The first two commands run on a **fresh clone with zero setup** — no API key, no `pip install`, no `config.json` (Python ≥ 3.12 only); they're fully deterministic and offline. The `--smoke` checks below are optional and need a key.

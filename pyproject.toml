@@ -29,8 +29,21 @@ capture = [
     "Pillow",
 ]
 
+# Fully-local, in-machine inference — a self-contained alternative to a cloud key.
+# `llama-cpp-python` runs a GGUF model (its own OpenAI-compatible server or in-process);
+# `huggingface-hub` fetches the chosen GGUF on demand. Imported ONLY by the local driver
+# (throughlog/llm/local.py), never by the pure-stdlib pipeline. See `tl local`.
+local = [
+    "llama-cpp-python",
+    "huggingface-hub",
+]
+
 [project.scripts]
 tl = "throughlog.cli:main"
 
 [tool.setuptools]
 packages = ["throughlog", "throughlog.privacy", "throughlog.sources", "throughlog.intent", "throughlog.llm", "sim"]
+
+[tool.setuptools.package-data]
+# Ship the curated local-model registry as data alongside the package.
+throughlog = ["llm/models.json"]
