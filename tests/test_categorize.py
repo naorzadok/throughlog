@@ -12,7 +12,7 @@ from throughlog.schema import (
     FOCUS_SESSION, FILE_CHANGE, GIT_COMMIT, NARRATION, IDLE_START,
 )
 from throughlog.categorize import (
-    signal_stack, categorize_events, event_summary,
+    signal_stack, categorize_events, event_summary, _llm_categorize,
     _extract_json_object, _parse_assignments, THRESHOLD,
 )
 from throughlog.llm.client import (
@@ -399,6 +399,139 @@ class Client(unittest.TestCase):
         self.assertEqual(slept, [])
         c.chat("s", "u")                       # third is paced by a full window
         self.assertEqual(slept, [WINDOW_SEC])
+
+    def test_metering_records_label_and_usage(self):
+        opener = _opener_returning({
+            "choices": [{"message": {"content": "ok"}}],
+            "usage": {"prompt_tokens": 120, "completion_tokens": 30, "total_tokens": 150}})
+        c = LLMClient(_cfg(), opener=opener, sleep=lambda _: None)
+        c.chat("s", "u", label="overview")
+        self.assertEqual(len(c.calls), 1)
+        r = c.calls[0]
+        self.assertEqual((r.label, r.model, r.ok, r.fallback_used), ("overview", "test/model", True, False))
+        self.assertEqual((r.prompt_tokens, r.completion_tokens, r.total_tokens), (120, 30, 150))
+
+    def test_metering_total_tokens_falls_back_to_sum(self):
+        opener = _opener_returning({"choices": [{"message": {"content": "ok"}}],
+                                    "usage": {"prompt_tokens": 7, "completion_tokens": 5}})
+        c = LLMClient(_cfg(), opener=opener, sleep=lambda _: None)
+        c.chat("s", "u")
+        self.assertEqual(c.calls[0].total_tokens, 12)      # provider omitted total_tokens
+
+    def test_metering_flags_fallback_use(self):
+        good = json.dumps({"choices": [{"message": {"content": "pong"}}]}).encode()
+
+        def opener(req, timeout=None):
+            if json.loads(req.data)["model"] == "test/model":
+                raise urllib.error.HTTPError("u", 429, "rate", {}, io.BytesIO(b"rl"))
+            return _Resp(good)
+
+        c = LLMClient(_cfg(max_retries=1, model_fallback="test/backup"),
+                      opener=opener, sleep=lambda _: None)
+        c.chat("s", "u", label="categorize")
+        r = c.calls[-1]
+        self.assertTrue(r.fallback_used and r.ok)
+        self.assertEqual(r.model, "test/backup")           # the model that answered
+
+    def test_metering_records_terminal_failure(self):
+        def opener(req, timeout=None):
+            raise urllib.error.HTTPError("u", 429, "rate", {}, io.BytesIO(b"rl"))
+        c = LLMClient(_cfg(max_retries=1), opener=opener, sleep=lambda _: None)
+        with self.assertRaises(LLMError):
+            c.chat("s", "u", label="entry")
+        r = c.calls[-1]
+        self.assertFalse(r.ok)
+        self.assertEqual(r.label, "entry")
+        self.assertTrue(r.error)
+
+    def test_metrics_summary_aggregates(self):
+        opener = _opener_returning({
+            "choices": [{"message": {"content": "ok"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14}})
+        c = LLMClient(_cfg(), opener=opener, sleep=lambda _: None)
+        c.chat("s", "u", label="a")
+        c.chat("s", "u", label="b")
+        m = c.metrics_summary()
+        self.assertEqual((m["calls"], m["ok"], m["degraded"], m["fallbacks"]), (2, 2, 0, 0))
+        self.assertEqual((m["prompt_tokens"], m["completion_tokens"], m["total_tokens"]), (20, 8, 28))
+
+    def test_from_config_reads_circuit_breaker(self):
+        self.assertTrue(LLMConfig.from_config({"llm": {"circuit_breaker": True}}).circuit_breaker)
+        self.assertFalse(LLMConfig.from_config({"llm": {}}).circuit_breaker)   # default off
+
+    def _rate_limited_primary_opener(self, seen):
+        good = json.dumps({"choices": [{"message": {"content": "pong"}}]}).encode()
+
+        def opener(req, timeout=None):
+            model = json.loads(req.data.decode("utf-8"))["model"]
+            seen.append(model)
+            if model == "test/model":
+                raise urllib.error.HTTPError("u", 429, "rate", {}, io.BytesIO(b"rate-limited"))
+            return _Resp(good)
+        return opener
+
+    def test_circuit_breaker_skips_dead_primary_on_later_calls(self):
+        seen = []
+        c = LLMClient(_cfg(model_fallback="test/backup", max_retries=1, circuit_breaker=True),
+                      opener=self._rate_limited_primary_opener(seen), sleep=lambda _: None)
+        c.chat("s", "u")                                     # call 1: primary 429 -> fallback
+        self.assertIn("test/model", seen)                    # primary attempted once
+        seen.clear()
+        c.chat("s", "u")                                     # call 2: primary is dead -> skipped
+        self.assertEqual(seen, ["test/backup"])              # went straight to fallback
+
+    def test_circuit_breaker_off_reattempts_primary_each_call(self):
+        seen = []
+        c = LLMClient(_cfg(model_fallback="test/backup", max_retries=1, circuit_breaker=False),
+                      opener=self._rate_limited_primary_opener(seen), sleep=lambda _: None)
+        c.chat("s", "u")
+        seen.clear()
+        c.chat("s", "u")                                     # default: primary re-attempted
+        self.assertEqual(seen, ["test/model", "test/backup"])
+
+    def test_circuit_breaker_never_leaves_nothing_to_try(self):
+        # Single model, no fallback: even after it trips, the next call must still try it
+        # (the breaker skips a dead model but never refuses a needed call).
+        seen = []
+        c = LLMClient(_cfg(max_retries=1, circuit_breaker=True),
+                      opener=self._rate_limited_primary_opener(seen), sleep=lambda _: None)
+        with self.assertRaises(LLMError):
+            c.chat("s", "u")
+        with self.assertRaises(LLMError):
+            c.chat("s", "u")                                 # still attempted, not skipped away
+        self.assertEqual(seen, ["test/model", "test/model"])
+
+
+class _KwCapture:
+    """Records the max_tokens each chat() receives; returns an empty-assignments reply."""
+    def __init__(self):
+        self.max_tokens: list[int] = []
+
+    def chat(self, system, user, *, temperature=0.0, max_tokens=1500, label=""):
+        self.max_tokens.append(max_tokens)
+        return '{"assignments": []}'
+
+
+class CategorizeBudget(unittest.TestCase):
+    @staticmethod
+    def _batch(n):
+        return [(i, make_event(NARRATION, kind="intent", adapter="narration",
+                               payload={"note": "ambiguous"}, ts_wall=TS)) for i in range(n)]
+
+    def test_small_batch_keeps_default_1500(self):
+        c = _KwCapture()
+        _llm_categorize(self._batch(2), PROJECTS, c)
+        self.assertEqual(c.max_tokens[0], 1500)              # wire byte-identical for small batches
+
+    def test_large_batch_scales_up(self):
+        c = _KwCapture()
+        _llm_categorize(self._batch(50), PROJECTS, c)
+        self.assertEqual(c.max_tokens[0], min(8000, 80 * 50))   # 4000 — headroom so JSON isn't cut
+
+    def test_scaling_is_capped(self):
+        c = _KwCapture()
+        _llm_categorize(self._batch(500), PROJECTS, c)
+        self.assertEqual(c.max_tokens[0], 8000)              # never runs away
 
 
 class SmokeDiagnostics(unittest.TestCase):

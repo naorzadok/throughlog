@@ -387,7 +387,7 @@ def enrich_project(entry: dict[str, Any], digest: str, client: Any) -> dict[str,
 
     system, user = build_init_enrich_prompt(entry, digest)
     try:
-        raw = client.chat(system, user, max_tokens=600)
+        raw = client.chat(system, user, max_tokens=600, label="init_enrich")
     except LLMError:
         return entry
     data = _parse_enrich_json(raw)

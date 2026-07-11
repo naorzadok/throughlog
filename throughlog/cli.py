@@ -153,6 +153,13 @@ def cmd_synthesize(args: argparse.Namespace) -> int:
         print(f"[tl] summary: {res.summary_error}")
     if res.exec_error:
         print(f"[tl] exec summary: {res.exec_error}")
+    if client is not None:                          # per-run LLM metering (tokens + latency)
+        m = client.metrics_summary()
+        print(f"[tl] llm: {m['calls']} call(s) "
+              f"({m['degraded']} degraded, {m['fallbacks']} via fallback), "
+              f"{m['total_tokens']} tokens "
+              f"({m['prompt_tokens']} in / {m['completion_tokens']} out), "
+              f"{m['latency_sec']}s")
     print(f"[tl] done ({res.today}).")
     return 0
 

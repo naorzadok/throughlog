@@ -20,7 +20,7 @@ class _FakeClient:
         self.system = self.user = None
         self.calls = 0
 
-    def chat(self, system, user, *, temperature=0.0, max_tokens=1500):
+    def chat(self, system, user, *, temperature=0.0, max_tokens=1500, label=""):
         self.calls += 1
         self.system, self.user = system, user
         if self.error:
