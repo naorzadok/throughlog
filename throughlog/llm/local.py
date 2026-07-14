@@ -340,7 +340,9 @@ def serve(model_file: Path | str, *, host: str = DEFAULT_HOST, port: int = DEFAU
     dashboard); otherwise it runs in the foreground (Ctrl+C to stop)."""
     if not have_llama_cpp():
         raise LocalError('llama-cpp-python is not installed — run: pip install "throughlog[local]" '
-                         "(or use Ollama and point local_endpoint at http://localhost:11434).")
+                         "(no C/C++ compiler? add: --extra-index-url "
+                         "https://abetlen.github.io/llama-cpp-python/whl/cpu). "
+                         "Or use Ollama and point local_endpoint at http://localhost:11434.")
     if not Path(model_file).is_file():
         raise LocalError(f"model file not found: {model_file} — run `tl local pull` first.")
     cmd = serve_command(model_file, host=host, port=port, alias=alias)
