@@ -146,7 +146,10 @@ ollama pull qwen2.5:3b
 # then set llm.provider="local", llm.local_endpoint="http://127.0.0.1:11434", llm.local_model="qwen2.5:3b"
 
 # Option B — bundled, self-contained (no extra app)
-pip install -e ".[local]"                       # llama-cpp-python + a stdlib GGUF downloader
+pip install -e ".[local]"                       # llama-cpp-python[server] + a stdlib GGUF downloader
+#   No C/C++ compiler (e.g. stock Windows)? Grab a prebuilt CPU wheel instead of compiling:
+#   pip install -e ".[local]" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+#   (CUDA/Metal wheels: swap `cpu` for `cu124` / `metal` — see the llama-cpp-python install docs.)
 tl local list                                   # the curated shortlist
 tl local pull nemotron-3-nano-4b                # ~2.5 GB into ~/.throughlog/models
 tl local serve --use                            # serve it + point config at it (Ctrl+C to stop)

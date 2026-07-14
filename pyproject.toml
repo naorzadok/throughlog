@@ -30,11 +30,14 @@ capture = [
 ]
 
 # Fully-local, in-machine inference — a self-contained alternative to a cloud key.
-# `llama-cpp-python` runs a GGUF model (its own OpenAI-compatible server or in-process);
+# `llama-cpp-python[server]` runs a GGUF model behind its own OpenAI-compatible server
+# (the `[server]` extra pulls uvicorn/fastapi/etc. that `python -m llama_cpp.server` needs);
 # `huggingface-hub` fetches the chosen GGUF on demand. Imported ONLY by the local driver
 # (throughlog/llm/local.py), never by the pure-stdlib pipeline. See `tl local`.
+# On a machine with no C/C++ compiler (e.g. stock Windows), install a prebuilt wheel:
+#   pip install -e ".[local]" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 local = [
-    "llama-cpp-python",
+    "llama-cpp-python[server]",
     "huggingface-hub",
 ]
 
